@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState } from "react";
 import { User } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
 import { useNavigate } from "react-router-dom";
+import type { MobileOtpType } from '@supabase/supabase-js';
 
 type AuthContextType = {
   user: User | null;
@@ -170,29 +171,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { needsOtp: true };
   };
 
-  const verifyOtp = async (
-    email: string,
-    token: string,
-    type: "signup" | "email",
-  ) => {
-    const { error } = await supabase.auth.verifyOtp({
-      email,
-      token,
-      type,
-    });
-    if (error) throw error;
-  };
+type OtpType = "signup" | "email" | "email_change" | MobileOtpType;
 
-  const resendOtp = async (email: string, type: "signup" | "email") => {
-    const { error } = await supabase.auth.resend({
-      type,
-      email,
-      options: {
-        emailRedirectTo: undefined, // Prevent magic link
-      },
-    });
-    if (error) throw error;
-  };
+const verifyOtp = async (
+  email: string,
+  token: string,
+  type: "signup" | "email",
+) => {
+  const { error } = await supabase.auth.verifyOtp({
+    email,
+    token,
+    type: type as OtpType,  // <--- CAST HERE
+  });
+  if (error) throw error;
+};
+
+const resendOtp = async (email: string, type: "signup" | "email") => {
+  const { error } = await supabase.auth.resend({
+    type: type as OtpType,   // <--- CAST HERE
+    email,
+    options: {
+      emailRedirectTo: undefined,
+    },
+  });
+  if (error) throw error;
+};
+
 
   const signOut = async () => {
     const { error } = await supabase.auth.signOut();
