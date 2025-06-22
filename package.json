@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
  "scripts": {
-  "start": "vite preview --port $PORT",
+  "start": "vite preview --port $PORT --host 0.0.0.0",
   "dev": "vite",
   "build": "tsc ; vite build",
   "build-no-errors": "tsc ; vite build",
@@ -12,6 +12,7 @@
   "preview": "vite preview",
   "types:supabase": "npx supabase gen types typescript --project-id $SUPABASE_PROJECT_ID > src/types/supabase.ts"
 },
+
 
 
   "dependencies": {
