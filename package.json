@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
  "scripts": {
-  "start": "vite preview",
+  "start": "vite preview --port $PORT",
   "dev": "vite",
   "build": "tsc ; vite build",
   "build-no-errors": "tsc ; vite build",
@@ -12,6 +12,7 @@
   "preview": "vite preview",
   "types:supabase": "npx supabase gen types typescript --project-id $SUPABASE_PROJECT_ID > src/types/supabase.ts"
 },
+
 
   "dependencies": {
     "@hookform/resolvers": "^3.6.0",
