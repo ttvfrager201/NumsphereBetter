@@ -273,6 +273,10 @@ inspector_port = 8083
 verify_jwt = false
 enabled = true
 
+[functions.create-checkout-session]
+verify_jwt = false
+enabled = true
+
 [analytics]
 enabled = true
 port = 54327

@@ -24,6 +24,7 @@ type AuthContextType = {
     type: "signup" | "email",
   ) => Promise<void>;
   resendOtp: (email: string, type: "signup" | "email") => Promise<void>;
+  resetPassword: (email: string) => Promise<void>;
   signOut: () => Promise<void>;
 };
 
@@ -211,6 +212,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (error) throw error;
   };
 
+  const resetPassword = async (email: string) => {
+    // Simply send the reset password email without validation
+    // Supabase will handle the email existence check internally
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    });
+
+    if (error) {
+      // If the error is about user not found, provide a user-friendly message
+      if (
+        error.message.includes("User not found") ||
+        error.message.includes("not found")
+      ) {
+        throw new Error("No account found with this email address.");
+      }
+      throw error;
+    }
+  };
+
   const signOut = async () => {
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
@@ -227,6 +247,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signUp,
         verifyOtp,
         resendOtp,
+        resetPassword,
         signOut,
       }}
     >
