@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState } from "react";
 import { User } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
 import { useNavigate } from "react-router-dom";
-import type { MobileOtpType } from '@supabase/supabase-js';
+import type { MobileOtpType } from "@supabase/supabase-js";
 
 type AuthContextType = {
   user: User | null;
@@ -127,6 +127,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             "An account with this email already exists. Please sign in instead.",
         };
       }
+
+      // Handle rate limit errors
+      if (
+        signUpError.message.includes("rate") ||
+        signUpError.message.includes("too many") ||
+        signUpError.message.includes("exceeded")
+      ) {
+        return {
+          needsOtp: false,
+          error:
+            "Too many signup attempts. Please wait a few minutes before trying again.",
+        };
+      }
+
       throw signUpError;
     }
 
@@ -171,32 +185,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { needsOtp: true };
   };
 
-type OtpType = "signup" | "email" | "email_change" | MobileOtpType;
+  type OtpType = "signup" | "email" | "email_change" | MobileOtpType;
 
-const verifyOtp = async (
-  email: string,
-  token: string,
-  type: "signup" | "email",
-) => {
-  const { error } = await supabase.auth.verifyOtp({
-    email,
-    token,
-    type: type as OtpType,  // <--- CAST HERE
-  });
-  if (error) throw error;
-};
+  const verifyOtp = async (
+    email: string,
+    token: string,
+    type: "signup" | "email",
+  ) => {
+    const { error } = await supabase.auth.verifyOtp({
+      email,
+      token,
+      type: type as OtpType, // <--- CAST HERE
+    });
+    if (error) throw error;
+  };
 
-const resendOtp = async (email: string, type: "signup" | "email") => {
-  const { error } = await supabase.auth.resend({
-    type: type as OtpType,   // <--- CAST HERE
-    email,
-    options: {
-      emailRedirectTo: undefined,
-    },
-  });
-  if (error) throw error;
-};
-
+  const resendOtp = async (email: string, type: "signup" | "email") => {
+    const { error } = await supabase.auth.resend({
+      type: type as OtpType, // <--- CAST HERE
+      email,
+      options: {
+        emailRedirectTo: undefined,
+      },
+    });
+    if (error) throw error;
+  };
 
   const signOut = async () => {
     const { error } = await supabase.auth.signOut();

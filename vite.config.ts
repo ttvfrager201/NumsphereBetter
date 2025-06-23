@@ -12,9 +12,10 @@ if (process.env.TEMPO === "true") {
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  base: process.env.NODE_ENV === "development" ? "/" : process.env.VITE_BASE_PATH || "/",
+  base: "/",
   optimizeDeps: {
-    entries: ["src/main.tsx", "src/tempobook/**/*"],
+    entries: ["src/main.tsx"],
+    include: ["react", "react-dom", "react-router-dom"],
   },
   plugins: [
     react({
@@ -23,13 +24,23 @@ export default defineConfig({
     tempo(),
   ],
   resolve: {
-    preserveSymlinks: true,
+    preserveSymlinks: false,
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
   },
   server: {
+    host: "0.0.0.0",
+    port: 5173,
+    strictPort: false,
     // @ts-ignore
     allowedHosts: true,
-  }
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: undefined,
+      },
+    },
+  },
 });
