@@ -114,7 +114,7 @@ Deno.serve(async (req) => {
 
     const origin =
       req.headers.get("origin") ||
-      "https://eloquent-colden2-jmaha.view-3.tempo-dev.app";
+      "https://upbeat-gould2-f93j7.view-3.tempo-dev.app/";
 
     const params = new URLSearchParams();
     params.append("automatic_tax[enabled]", "true");
