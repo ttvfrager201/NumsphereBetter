@@ -43,12 +43,26 @@ export default function LoginForm() {
         navigate("/dashboard");
       }
     } catch (error: any) {
-      setError(error.message || "Invalid email or password");
-      toast({
-        title: "Sign in failed",
-        description: "Please check your credentials and try again.",
-        variant: "destructive",
-      });
+      // Filter out rate limit errors to avoid annoying users
+      if (
+        error.message?.includes("rate") ||
+        error.message?.includes("too many") ||
+        error.message?.includes("exceeded")
+      ) {
+        setError("Please wait a moment before trying again.");
+        toast({
+          title: "Please wait",
+          description: "Please wait a moment before trying again.",
+          variant: "destructive",
+        });
+      } else {
+        setError(error.message || "Invalid email or password");
+        toast({
+          title: "Sign in failed",
+          description: "Please check your credentials and try again.",
+          variant: "destructive",
+        });
+      }
     } finally {
       setIsLoading(false);
     }

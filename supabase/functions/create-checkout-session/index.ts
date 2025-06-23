@@ -1,3 +1,30 @@
+/*
+ * STRIPE + PICA SETUP GUIDE:
+ *
+ * 1. Get your Stripe API keys:
+ *    - Go to https://dashboard.stripe.com/apikeys
+ *    - Copy your Secret Key (starts with sk_)
+ *
+ * 2. Set up Pica connection:
+ *    - Go to https://app.picaos.com
+ *    - Create a new Stripe connection
+ *    - Copy the connection key and action ID
+ *
+ * 3. Set environment variables in Supabase:
+ *    - PICA_SECRET_KEY: Your Pica secret key
+ *    - PICA_CONNECTION_KEY: Your Pica connection key
+ *    - PICA_ACTION_ID: Your Pica action ID
+ *
+ * 4. Create Stripe products and prices:
+ *    - Go to https://dashboard.stripe.com/products
+ *    - Create products for each plan (starter, business, enterprise)
+ *    - Copy the price IDs and update the planPriceMap below
+ *
+ * 5. Test the integration:
+ *    - Use Stripe test mode first
+ *    - Test with card number 4242424242424242
+ */
+
 import { corsHeaders } from "@shared/cors.ts";
 
 Deno.serve(async (req) => {
@@ -29,10 +56,11 @@ Deno.serve(async (req) => {
     }
 
     // Map plan IDs to Stripe Price IDs
+    // TODO: Replace these with your actual Stripe Price IDs from your dashboard
     const planPriceMap: Record<string, string> = {
-      starter: "price_1RcsajB6b7vINOBH3AdUv05j",
-      business: "price_1RctJ5B6b7vINOBHvuYvAHES",
-      enterprise: "price_1RctJQB6b7vINOBHp3CpujGn",
+      starter: "price_1RcsajB6b7vINOBH3AdUv05j", // Replace with your starter plan price ID
+      business: "price_1RctJ5B6b7vINOBHvuYvAHES", // Replace with your business plan price ID
+      enterprise: "price_1RctJQB6b7vINOBHp3CpujGn", // Replace with your enterprise plan price ID
     };
 
     const priceId = planPriceMap[planId];
@@ -48,8 +76,27 @@ Deno.serve(async (req) => {
 
     // Get environment variables
     const picaSecret = Deno.env.get("PICA_SECRET_KEY");
+    const picaConnectionKey = Deno.env.get("PICA_CONNECTION_KEY");
+    const picaActionId = Deno.env.get("PICA_ACTION_ID");
+
     if (!picaSecret) {
       console.error("PICA_SECRET_KEY not found in environment");
+      return new Response(JSON.stringify({ error: "Configuration error" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 500,
+      });
+    }
+
+    if (!picaConnectionKey) {
+      console.error("PICA_CONNECTION_KEY not found in environment");
+      return new Response(JSON.stringify({ error: "Configuration error" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 500,
+      });
+    }
+
+    if (!picaActionId) {
+      console.error("PICA_ACTION_ID not found in environment");
       return new Response(JSON.stringify({ error: "Configuration error" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
         status: 500,
@@ -61,9 +108,8 @@ Deno.serve(async (req) => {
     const headers = {
       "Content-Type": "application/x-www-form-urlencoded",
       "x-pica-secret": picaSecret,
-      "x-pica-connection-key":
-        "live::stripe::default::06f4b8063c8b435f99ca398191265ea2|4c119ea8-ec05-41e7-9507-50aeb24ff1ab",
-      "x-pica-action-id": "conn_mod_def::GCmLNSLWawg::Pj6pgAmnQhuqMPzB8fquRg",
+      "x-pica-connection-key": picaConnectionKey,
+      "x-pica-action-id": picaActionId,
     };
 
     const origin =
