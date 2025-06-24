@@ -71,7 +71,7 @@ Deno.serve(async (req) => {
   const stripe = new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" });
 
   try {
-    const origin = "https://determined-kapitsa1-n67ge.view-3.tempo-dev.app";
+    const origin = "https://numspherebetter.onrender.com";
 
     const checkoutSession = await stripe.checkout.sessions.create({
       mode: "subscription",
