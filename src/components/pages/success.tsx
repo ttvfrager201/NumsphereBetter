@@ -85,16 +85,24 @@ export default function Success() {
 
         console.log("Subscription status updated successfully");
 
-        // Refresh payment status in auth context
+        // Refresh payment status in auth context multiple times to ensure it's updated
+        console.log("Refreshing payment status...");
         await checkPaymentStatus();
+
+        // Wait a bit and check again to ensure the state is properly updated
+        setTimeout(async () => {
+          await checkPaymentStatus();
+          console.log("Payment status refreshed again");
+        }, 500);
 
         console.log("Payment processing completed successfully");
         setIsProcessing(false);
 
-        // Auto-redirect to dashboard after 2 seconds
+        // Auto-redirect to dashboard after 3 seconds to allow state to update
         setTimeout(() => {
+          console.log("Redirecting to dashboard...");
           window.location.href = "/dashboard";
-        }, 2000);
+        }, 3000);
       } catch (error) {
         console.error("Error processing payment success:", error);
         setError(error.message || "Failed to process payment confirmation");

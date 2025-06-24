@@ -9,13 +9,22 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ChevronRight, Settings, User } from "lucide-react";
+import * as React from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../../../supabase/auth";
 
 export default function LandingPage() {
-  const { user, signOut, hasCompletedPayment } = useAuth();
-
+  const { user, signOut, hasCompletedPayment, checkPaymentStatus } = useAuth();
   const navigate = useNavigate();
+
+  // Force payment status check when component mounts
+  React.useEffect(() => {
+    if (user) {
+      console.log("Home: Checking payment status for user:", user.id);
+      console.log("Home: Current hasCompletedPayment:", hasCompletedPayment);
+      checkPaymentStatus();
+    }
+  }, [user, checkPaymentStatus]);
 
   return (
     <div className="min-h-screen bg-white text-black">

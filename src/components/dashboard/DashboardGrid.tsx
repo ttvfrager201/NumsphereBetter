@@ -42,61 +42,7 @@ interface UserData {
   email: string;
 }
 
-const defaultProjects: ProjectCardProps[] = [
-  {
-    title: "Website Redesign",
-    progress: 75,
-    team: [
-      {
-        name: "Alice",
-        avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Alice",
-      },
-      {
-        name: "Bob",
-        avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Bob",
-      },
-      {
-        name: "Charlie",
-        avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Charlie",
-      },
-    ],
-    dueDate: "2024-04-15",
-  },
-  {
-    title: "Mobile App Development",
-    progress: 45,
-    team: [
-      {
-        name: "David",
-        avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=David",
-      },
-      {
-        name: "Eve",
-        avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Eve",
-      },
-    ],
-    dueDate: "2024-05-01",
-  },
-  {
-    title: "Marketing Campaign",
-    progress: 90,
-    team: [
-      {
-        name: "Frank",
-        avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Frank",
-      },
-      {
-        name: "Grace",
-        avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Grace",
-      },
-      {
-        name: "Henry",
-        avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Henry",
-      },
-    ],
-    dueDate: "2024-03-30",
-  },
-];
+const defaultProjects: ProjectCardProps[] = [];
 
 const ProjectCard = ({ title, progress, team, dueDate }: ProjectCardProps) => {
   return (
@@ -296,37 +242,19 @@ const DashboardGrid = ({
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        {/* Summary Cards */}
+        {/* VoIP Status Card */}
         <Card className="bg-white/90 backdrop-blur-sm border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-base font-medium text-gray-900">
-              Total Projects
+              VoIP Status
             </CardTitle>
-            <div className="h-8 w-8 rounded-full bg-blue-50 flex items-center justify-center">
-              <BarChart2 className="h-4 w-4 text-blue-500" />
+            <div className="h-8 w-8 rounded-full bg-green-50 flex items-center justify-center">
+              <CalendarDays className="h-4 w-4 text-green-500" />
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-semibold text-gray-900">
-              {projects.length}
-            </div>
-            <p className="text-sm text-gray-500 mt-1">
-              Active projects this month
-            </p>
-          </CardContent>
-        </Card>
-        <Card className="bg-white/90 backdrop-blur-sm border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-base font-medium text-gray-900">
-              Team Members
-            </CardTitle>
-            <div className="h-8 w-8 rounded-full bg-purple-50 flex items-center justify-center">
-              <Users className="h-4 w-4 text-purple-500" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-semibold text-gray-900">12</div>
-            <p className="text-sm text-gray-500 mt-1">Active contributors</p>
+            <div className="text-2xl font-semibold text-gray-900">Ready</div>
+            <p className="text-sm text-gray-500 mt-1">System operational</p>
           </CardContent>
         </Card>
         <Card className="bg-white/90 backdrop-blur-sm border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
@@ -399,6 +327,24 @@ const DashboardGrid = ({
             </p>
           </CardContent>
         </Card>
+
+        {/* VoIP Features - Coming Soon */}
+        {projects.length === 0 && (
+          <Card className="bg-white/90 backdrop-blur-sm border border-gray-100 rounded-2xl shadow-sm overflow-hidden col-span-full">
+            <CardContent className="p-8 text-center">
+              <div className="h-16 w-16 rounded-full bg-blue-50 flex items-center justify-center mx-auto mb-4">
+                <CalendarDays className="h-8 w-8 text-blue-500" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                VoIP Features Coming Soon
+              </h3>
+              <p className="text-gray-600">
+                We're preparing your VoIP dashboard with call management,
+                analytics, and more.
+              </p>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Project Cards */}
         {projects.map((project, index) => (

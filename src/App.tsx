@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import * as React from "react";
 import { Navigate, Route, Routes, useRoutes } from "react-router-dom";
 import routes from "tempo-routes";
 import LoginForm from "./components/auth/LoginForm";
@@ -20,20 +21,52 @@ function PrivateRoute({
   children: React.ReactNode;
   requiresPayment?: boolean;
 }) {
-  const { user, loading, hasCompletedPayment } = useAuth();
+  const { user, loading, hasCompletedPayment, checkPaymentStatus } = useAuth();
+  const [paymentChecked, setPaymentChecked] = React.useState(false);
 
-  if (loading) {
+  // Force a payment status check when component mounts
+  React.useEffect(() => {
+    if (user && requiresPayment && !paymentChecked) {
+      console.log("PrivateRoute: Checking payment status for user:", user.id);
+      console.log(
+        "PrivateRoute: Current hasCompletedPayment:",
+        hasCompletedPayment,
+      );
+      checkPaymentStatus().then(() => {
+        setPaymentChecked(true);
+      });
+    } else if (!requiresPayment) {
+      setPaymentChecked(true);
+    }
+  }, [
+    user,
+    requiresPayment,
+    checkPaymentStatus,
+    hasCompletedPayment,
+    paymentChecked,
+  ]);
+
+  if (loading || (requiresPayment && !paymentChecked)) {
     return <LoadingScreen text="Authenticating..." />;
   }
 
   if (!user) {
+    console.log("PrivateRoute: No user, redirecting to home");
     return <Navigate to="/" />;
   }
 
-  if (requiresPayment && !hasCompletedPayment) {
+  if (requiresPayment && !hasCompletedPayment && paymentChecked) {
+    console.log(
+      "PrivateRoute: Payment required but not completed, redirecting to plan selection",
+    );
     return <Navigate to="/plan-selection" />;
   }
 
+  console.log("PrivateRoute: Access granted", {
+    requiresPayment,
+    hasCompletedPayment,
+    paymentChecked,
+  });
   return <>{children}</>;
 }
 

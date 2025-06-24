@@ -23,38 +23,7 @@ interface TaskBoardProps {
   isLoading?: boolean;
 }
 
-const defaultTasks: Task[] = [
-  {
-    id: "1",
-    title: "Design System Updates",
-    description: "Update component library with new design tokens",
-    status: "todo",
-    assignee: {
-      name: "Alice Smith",
-      avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Alice",
-    },
-  },
-  {
-    id: "2",
-    title: "API Integration",
-    description: "Integrate new backend endpoints",
-    status: "in-progress",
-    assignee: {
-      name: "Bob Johnson",
-      avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Bob",
-    },
-  },
-  {
-    id: "3",
-    title: "User Testing",
-    description: "Conduct user testing sessions",
-    status: "done",
-    assignee: {
-      name: "Carol Williams",
-      avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Carol",
-    },
-  },
-];
+const defaultTasks: Task[] = [];
 
 const TaskBoard = ({
   tasks = defaultTasks,
@@ -63,20 +32,25 @@ const TaskBoard = ({
   isLoading = false,
 }: TaskBoardProps) => {
   const [loading, setLoading] = useState(isLoading);
-  
-  // Simulate loading for demo purposes
-  useEffect(() => {
-    if (isLoading) {
-      const timer = setTimeout(() => {
-        setLoading(false);
-      }, 2000);
-      return () => clearTimeout(timer);
-    }
-  }, [isLoading]);
   const columns = [
-    { id: "todo", title: "To Do", color: "bg-gray-50", borderColor: "border-gray-200" },
-    { id: "in-progress", title: "In Progress", color: "bg-blue-50", borderColor: "border-blue-100" },
-    { id: "done", title: "Done", color: "bg-green-50", borderColor: "border-green-100" },
+    {
+      id: "todo",
+      title: "To Do",
+      color: "bg-gray-50",
+      borderColor: "border-gray-200",
+    },
+    {
+      id: "in-progress",
+      title: "In Progress",
+      color: "bg-blue-50",
+      borderColor: "border-blue-100",
+    },
+    {
+      id: "done",
+      title: "Done",
+      color: "bg-green-50",
+      borderColor: "border-green-100",
+    },
   ];
 
   const handleDragStart = (e: React.DragEvent, taskId: string) => {
@@ -103,7 +77,7 @@ const TaskBoard = ({
             Add Task
           </Button>
         </div>
-        
+
         <div className="grid grid-cols-3 gap-6 h-[calc(100%-4rem)]">
           {columns.map((column) => (
             <div
@@ -111,7 +85,9 @@ const TaskBoard = ({
               className={`${column.color} rounded-xl p-4 border ${column.borderColor}`}
             >
               <h3 className="font-medium text-gray-900 mb-4 flex items-center">
-                <span className={`h-2 w-2 rounded-full mr-2 ${column.id === 'todo' ? 'bg-gray-400' : column.id === 'in-progress' ? 'bg-blue-400' : 'bg-green-400'}`}></span>
+                <span
+                  className={`h-2 w-2 rounded-full mr-2 ${column.id === "todo" ? "bg-gray-400" : column.id === "in-progress" ? "bg-blue-400" : "bg-green-400"}`}
+                ></span>
                 {column.title}
               </h3>
               <div className="space-y-3 flex flex-col items-center justify-center min-h-[200px]">
@@ -121,7 +97,9 @@ const TaskBoard = ({
                     <div className="h-3 w-3 rounded-full bg-blue-500/20 animate-pulse" />
                   </div>
                 </div>
-                <p className="text-sm font-medium text-gray-500 mt-3">Loading tasks...</p>
+                <p className="text-sm font-medium text-gray-500 mt-3">
+                  Loading tasks...
+                </p>
               </div>
             </div>
           ))}
@@ -129,7 +107,7 @@ const TaskBoard = ({
       </div>
     );
   }
-  
+
   return (
     <div className="w-full h-full bg-white/90 backdrop-blur-sm p-6 rounded-2xl shadow-sm border border-gray-100">
       <div className="flex justify-between items-center mb-6">
@@ -149,42 +127,57 @@ const TaskBoard = ({
             onDrop={(e) => handleDrop(e, column.id as Task["status"])}
           >
             <h3 className="font-medium text-gray-900 mb-4 flex items-center">
-              <span className={`h-2 w-2 rounded-full mr-2 ${column.id === 'todo' ? 'bg-gray-400' : column.id === 'in-progress' ? 'bg-blue-400' : 'bg-green-400'}`}></span>
+              <span
+                className={`h-2 w-2 rounded-full mr-2 ${column.id === "todo" ? "bg-gray-400" : column.id === "in-progress" ? "bg-blue-400" : "bg-green-400"}`}
+              ></span>
               {column.title}
             </h3>
             <div className="space-y-3">
-              {tasks
-                .filter((task) => task.status === column.id)
-                .map((task) => (
-                  <motion.div
-                    key={task.id}
-                    layoutId={task.id}
-                    draggable
-                    onDragStart={(e) => handleDragStart(e as any, task.id)}
-                    onClick={() => onTaskClick(task)}
-                  >
-                    <Card className="p-4 cursor-pointer hover:shadow-md transition-all duration-200 rounded-xl border-0 bg-white shadow-sm">
-                      <h4 className="font-medium text-gray-900 mb-2">
-                        {task.title}
-                      </h4>
-                      <p className="text-sm text-gray-600 mb-3">
-                        {task.description}
-                      </p>
-                      {task.assignee && (
-                        <div className="flex items-center mt-3 pt-3 border-t border-gray-100">
-                          <img
-                            src={task.assignee.avatar}
-                            alt={task.assignee.name}
-                            className="w-7 h-7 rounded-full mr-2 border border-white shadow-sm"
-                          />
-                          <span className="text-sm text-gray-700 font-medium">
-                            {task.assignee.name}
-                          </span>
-                        </div>
-                      )}
-                    </Card>
-                  </motion.div>
-                ))}
+              {tasks.filter((task) => task.status === column.id).length ===
+              0 ? (
+                <div className="text-center py-8">
+                  <p className="text-sm text-gray-500">
+                    {column.id === "todo"
+                      ? "No tasks to do"
+                      : column.id === "in-progress"
+                        ? "No tasks in progress"
+                        : "No completed tasks"}
+                  </p>
+                </div>
+              ) : (
+                tasks
+                  .filter((task) => task.status === column.id)
+                  .map((task) => (
+                    <motion.div
+                      key={task.id}
+                      layoutId={task.id}
+                      draggable
+                      onDragStart={(e) => handleDragStart(e as any, task.id)}
+                      onClick={() => onTaskClick(task)}
+                    >
+                      <Card className="p-4 cursor-pointer hover:shadow-md transition-all duration-200 rounded-xl border-0 bg-white shadow-sm">
+                        <h4 className="font-medium text-gray-900 mb-2">
+                          {task.title}
+                        </h4>
+                        <p className="text-sm text-gray-600 mb-3">
+                          {task.description}
+                        </p>
+                        {task.assignee && (
+                          <div className="flex items-center mt-3 pt-3 border-t border-gray-100">
+                            <img
+                              src={task.assignee.avatar}
+                              alt={task.assignee.name}
+                              className="w-7 h-7 rounded-full mr-2 border border-white shadow-sm"
+                            />
+                            <span className="text-sm text-gray-700 font-medium">
+                              {task.assignee.name}
+                            </span>
+                          </div>
+                        )}
+                      </Card>
+                    </motion.div>
+                  ))
+              )}
             </div>
           </div>
         ))}
