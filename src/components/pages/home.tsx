@@ -13,7 +13,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../../../supabase/auth";
 
 export default function LandingPage() {
-  const { user, signOut } = useAuth();
+  const { user, signOut, hasCompletedPayment } = useAuth();
 
   const navigate = useNavigate();
 
@@ -30,12 +30,14 @@ export default function LandingPage() {
           <div className="flex items-center space-x-4">
             {user ? (
               <div className="flex items-center gap-4">
-                <Link to="/dashboard">
+                <Link
+                  to={hasCompletedPayment ? "/dashboard" : "/plan-selection"}
+                >
                   <Button
                     variant="ghost"
                     className="text-sm font-light hover:text-gray-500"
                   >
-                    Dashboard
+                    {hasCompletedPayment ? "Dashboard" : "Get Started"}
                   </Button>
                 </Link>
                 <DropdownMenu>

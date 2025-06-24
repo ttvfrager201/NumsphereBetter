@@ -42,9 +42,9 @@ Deno.serve(async (req) => {
   }
 
   const planPriceMap = {
-    starter: "price_1RcsajB6b7vINOBH3AdUv05j",
-    business: "price_1RctJ5B6b7vINOBHvuYvAHES",
-    enterprise: "price_1RctJQB6b7vINOBHp3CpujGn",
+    starter: "price_1RcsXnB6b7vINOBHFKemTArF",
+    business: "price_1RdKsrB6b7vINOBHH5zkVavh",
+    enterprise: "price_1RdKtCB6b7vINOBHAJNJibdz",
   };
 
   const priceId = planPriceMap[planId];

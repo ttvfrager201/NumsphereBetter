@@ -51,6 +51,7 @@ export type Database = {
           created_at: string
           email: string | null
           full_name: string | null
+          has_completed_payment: boolean | null
           id: string
           image: string | null
           name: string | null
@@ -63,6 +64,7 @@ export type Database = {
           created_at?: string
           email?: string | null
           full_name?: string | null
+          has_completed_payment?: boolean | null
           id: string
           image?: string | null
           name?: string | null
@@ -75,6 +77,7 @@ export type Database = {
           created_at?: string
           email?: string | null
           full_name?: string | null
+          has_completed_payment?: boolean | null
           id?: string
           image?: string | null
           name?: string | null
