@@ -4,8 +4,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Link, useNavigate } from "react-router-dom";
-import { LoadingSpinner } from "@/components/ui/loading-spinner";
-import { Mail, Lock, Eye, EyeOff, User, Phone } from "lucide-react";
+import { LoadingSpinner, LoadingScreen } from "@/components/ui/loading-spinner";
+import {
+  Mail,
+  Lock,
+  Eye,
+  EyeOff,
+  User,
+  Phone,
+  Award,
+  Globe,
+  Headphones,
+} from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import OtpVerification from "./OtpVerification";
 
@@ -66,6 +76,7 @@ export default function SignUpForm() {
   const [showOtpVerification, setShowOtpVerification] = useState(false);
   const [currentTestimonial, setCurrentTestimonial] = useState(0);
   const [isAnimating, setIsAnimating] = useState(false);
+  const [isTransitioning, setIsTransitioning] = useState(false);
   const { signUp, signInWithFacebook } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -101,11 +112,15 @@ export default function SignUpForm() {
 
     try {
       await signUp(email, password, fullName);
-      setShowOtpVerification(true);
-      toast({
-        title: "Account created!",
-        description: "Please check your email for the verification code.",
-      });
+      setIsTransitioning(true);
+      setTimeout(() => {
+        setShowOtpVerification(true);
+        setIsTransitioning(false);
+        toast({
+          title: "Account created!",
+          description: "Please check your email for the verification code.",
+        });
+      }, 800);
     } catch (error: any) {
       setError(error.message || "Failed to create account");
       toast({
@@ -135,6 +150,10 @@ export default function SignUpForm() {
     setShowOtpVerification(false);
   };
 
+  if (isTransitioning) {
+    return <LoadingScreen text="Creating your account..." fullScreen />;
+  }
+
   if (showOtpVerification) {
     return (
       <OtpVerification
@@ -150,12 +169,55 @@ export default function SignUpForm() {
       {/* Left side - Testimonials */}
       <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-green-600 to-blue-700 p-12 flex-col justify-center relative overflow-hidden">
         <div className="absolute inset-0 bg-black/10" />
+        {/* Floating SVG Elements */}
+        <div className="absolute inset-0 overflow-hidden">
+          <svg
+            className="absolute top-16 right-12 w-24 h-24 text-white/10"
+            fill="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+          </svg>
+          <svg
+            className="absolute bottom-20 right-8 w-16 h-16 text-white/15"
+            fill="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <svg
+            className="absolute top-1/3 left-8 w-14 h-14 text-white/20"
+            fill="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path d="M13 10V3L4 14h7v7l9-11h-7z" />
+          </svg>
+        </div>
         <div className="relative z-10">
           <div className="mb-8">
-            <h1 className="text-4xl font-bold text-white mb-4">NumSphere</h1>
+            <div className="flex items-center mb-4">
+              <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center mr-4">
+                <Phone className="h-6 w-6 text-white" />
+              </div>
+              <h1 className="text-4xl font-bold text-white">NumSphere</h1>
+            </div>
             <p className="text-xl text-green-100">
               Join Thousands of Businesses
             </p>
+            <div className="flex items-center mt-4 space-x-6">
+              <div className="flex items-center text-white/80">
+                <Award className="h-5 w-5 mr-2" />
+                <span className="text-sm">Award Winning</span>
+              </div>
+              <div className="flex items-center text-white/80">
+                <Globe className="h-5 w-5 mr-2" />
+                <span className="text-sm">Global Coverage</span>
+              </div>
+              <div className="flex items-center text-white/80">
+                <Headphones className="h-5 w-5 mr-2" />
+                <span className="text-sm">24/7 Support</span>
+              </div>
+            </div>
           </div>
 
           <div

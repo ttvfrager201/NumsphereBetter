@@ -9,6 +9,188 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      account_lockouts: {
+        Row: {
+          created_at: string | null
+          email: string
+          failed_attempts: number | null
+          first_failed_at: string | null
+          id: string
+          last_failed_at: string | null
+          locked_until: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          email: string
+          failed_attempts?: number | null
+          first_failed_at?: string | null
+          id?: string
+          last_failed_at?: string | null
+          locked_until?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          email?: string
+          failed_attempts?: number | null
+          first_failed_at?: string | null
+          id?: string
+          last_failed_at?: string | null
+          locked_until?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      call_flows: {
+        Row: {
+          created_at: string | null
+          flow_config: Json
+          flow_name: string
+          id: string
+          is_active: boolean | null
+          twilio_flow_sid: string | null
+          twilio_number_id: string | null
+          updated_at: string | null
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          flow_config?: Json
+          flow_name: string
+          id?: string
+          is_active?: boolean | null
+          twilio_flow_sid?: string | null
+          twilio_number_id?: string | null
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          flow_config?: Json
+          flow_name?: string
+          id?: string
+          is_active?: boolean | null
+          twilio_flow_sid?: string | null
+          twilio_number_id?: string | null
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "call_flows_twilio_number_id_fkey"
+            columns: ["twilio_number_id"]
+            isOneToOne: false
+            referencedRelation: "twilio_numbers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      email_rate_limits: {
+        Row: {
+          attempt_count: number | null
+          created_at: string | null
+          email: string
+          first_attempt_at: string | null
+          id: string
+          last_attempt_at: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          attempt_count?: number | null
+          created_at?: string | null
+          email: string
+          first_attempt_at?: string | null
+          id?: string
+          last_attempt_at?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          attempt_count?: number | null
+          created_at?: string | null
+          email?: string
+          first_attempt_at?: string | null
+          id?: string
+          last_attempt_at?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      twilio_numbers: {
+        Row: {
+          created_at: string | null
+          friendly_name: string | null
+          id: string
+          minutes_allocated: number | null
+          minutes_used: number | null
+          phone_number: string
+          plan_id: string
+          status: string | null
+          twilio_sid: string
+          updated_at: string | null
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          friendly_name?: string | null
+          id?: string
+          minutes_allocated?: number | null
+          minutes_used?: number | null
+          phone_number: string
+          plan_id: string
+          status?: string | null
+          twilio_sid: string
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          friendly_name?: string | null
+          id?: string
+          minutes_allocated?: number | null
+          minutes_used?: number | null
+          phone_number?: string
+          plan_id?: string
+          status?: string | null
+          twilio_sid?: string
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      user_devices: {
+        Row: {
+          created_at: string | null
+          device_fingerprint: string
+          device_name: string | null
+          expires_at: string | null
+          id: string
+          is_trusted: boolean | null
+          last_login: string | null
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          device_fingerprint: string
+          device_name?: string | null
+          expires_at?: string | null
+          id?: string
+          is_trusted?: boolean | null
+          last_login?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          device_fingerprint?: string
+          device_name?: string | null
+          expires_at?: string | null
+          id?: string
+          is_trusted?: boolean | null
+          last_login?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       user_subscriptions: {
         Row: {
           created_at: string | null
@@ -54,7 +236,9 @@ export type Database = {
           has_completed_payment: boolean | null
           id: string
           image: string | null
+          last_otp_verification: string | null
           name: string | null
+          requires_otp_verification: boolean | null
           token_identifier: string
           updated_at: string | null
           user_id: string | null
@@ -67,7 +251,9 @@ export type Database = {
           has_completed_payment?: boolean | null
           id: string
           image?: string | null
+          last_otp_verification?: string | null
           name?: string | null
+          requires_otp_verification?: boolean | null
           token_identifier: string
           updated_at?: string | null
           user_id?: string | null
@@ -80,7 +266,9 @@ export type Database = {
           has_completed_payment?: boolean | null
           id?: string
           image?: string | null
+          last_otp_verification?: string | null
           name?: string | null
+          requires_otp_verification?: boolean | null
           token_identifier?: string
           updated_at?: string | null
           user_id?: string | null
@@ -92,7 +280,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      check_account_lockout: {
+        Args: { user_email: string; is_failed_attempt?: boolean }
+        Returns: Json
+      }
+      check_email_rate_limit: {
+        Args: { user_email: string }
+        Returns: Json
+      }
     }
     Enums: {
       [_ in never]: never

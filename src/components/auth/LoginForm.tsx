@@ -4,9 +4,19 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Link, useNavigate } from "react-router-dom";
-import { LoadingSpinner } from "@/components/ui/loading-spinner";
-import { Mail, Lock, Eye, EyeOff, Phone } from "lucide-react";
+import { LoadingSpinner, LoadingScreen } from "@/components/ui/loading-spinner";
+import {
+  Mail,
+  Lock,
+  Eye,
+  EyeOff,
+  Phone,
+  Shield,
+  Users,
+  Zap,
+} from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
+import OtpVerification from "./OtpVerification";
 
 const testimonials = [
   {
@@ -61,6 +71,8 @@ export default function LoginForm() {
   const [isLoading, setIsLoading] = useState(false);
   const [currentTestimonial, setCurrentTestimonial] = useState(0);
   const [isAnimating, setIsAnimating] = useState(false);
+  const [showOtpVerification, setShowOtpVerification] = useState(false);
+  const [isTransitioning, setIsTransitioning] = useState(false);
   const { signIn, signInWithFacebook, shouldSkipOtp } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -83,22 +95,27 @@ export default function LoginForm() {
     setError("");
 
     try {
-      await signIn(email, password);
+      const result = await signIn(email, password);
 
-      // Check if device is trusted and skip OTP if so
-      if (shouldSkipOtp(email)) {
-        toast({
-          title: "Welcome back!",
-          description: "Signed in successfully using trusted device.",
-        });
-        navigate("/dashboard");
+      if (result.requiresOtp) {
+        setIsTransitioning(true);
+        setTimeout(() => {
+          setShowOtpVerification(true);
+          setIsTransitioning(false);
+          toast({
+            title: "Verification required",
+            description: "Please check your email for the verification code.",
+          });
+        }, 800);
       } else {
+        setIsTransitioning(true);
         toast({
           title: "Welcome back!",
           description: "You have successfully signed in to NumSphere.",
         });
-        // Navigate to dashboard after successful login
-        navigate("/dashboard");
+        setTimeout(() => {
+          navigate("/dashboard");
+        }, 1000);
       }
     } catch (error: any) {
       setError(error.message || "Failed to sign in");
@@ -111,6 +128,10 @@ export default function LoginForm() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleBackToSignIn = () => {
+    setShowOtpVerification(false);
   };
 
   const handleFacebookSignIn = async () => {
@@ -126,15 +147,72 @@ export default function LoginForm() {
     }
   };
 
+  if (isTransitioning) {
+    return <LoadingScreen text="Signing you in..." fullScreen />;
+  }
+
+  if (showOtpVerification) {
+    return (
+      <OtpVerification
+        email={email}
+        type="signin"
+        onBack={handleBackToSignIn}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex">
       {/* Left side - Testimonials */}
       <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-blue-600 to-purple-700 p-12 flex-col justify-center relative overflow-hidden">
         <div className="absolute inset-0 bg-black/10" />
+        {/* Floating SVG Elements */}
+        <div className="absolute inset-0 overflow-hidden">
+          <svg
+            className="absolute top-20 left-10 w-16 h-16 text-white/20"
+            fill="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+          </svg>
+          <svg
+            className="absolute top-40 right-20 w-12 h-12 text-white/15"
+            fill="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+          </svg>
+          <svg
+            className="absolute bottom-32 left-16 w-20 h-20 text-white/10"
+            fill="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+          </svg>
+        </div>
         <div className="relative z-10">
           <div className="mb-8">
-            <h1 className="text-4xl font-bold text-white mb-4">NumSphere</h1>
+            <div className="flex items-center mb-4">
+              <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center mr-4">
+                <Phone className="h-6 w-6 text-white" />
+              </div>
+              <h1 className="text-4xl font-bold text-white">NumSphere</h1>
+            </div>
             <p className="text-xl text-blue-100">Professional VoIP Solutions</p>
+            <div className="flex items-center mt-4 space-x-6">
+              <div className="flex items-center text-white/80">
+                <Shield className="h-5 w-5 mr-2" />
+                <span className="text-sm">Enterprise Security</span>
+              </div>
+              <div className="flex items-center text-white/80">
+                <Users className="h-5 w-5 mr-2" />
+                <span className="text-sm">10,000+ Users</span>
+              </div>
+              <div className="flex items-center text-white/80">
+                <Zap className="h-5 w-5 mr-2" />
+                <span className="text-sm">99.9% Uptime</span>
+              </div>
+            </div>
           </div>
 
           <div

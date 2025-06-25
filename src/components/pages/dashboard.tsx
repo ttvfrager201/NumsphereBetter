@@ -3,6 +3,7 @@ import TopNavigation from "../dashboard/layout/TopNavigation";
 import Sidebar from "../dashboard/layout/Sidebar";
 import DashboardGrid from "../dashboard/DashboardGrid";
 import TaskBoard from "../dashboard/TaskBoard";
+import TwilioNumberManager from "../dashboard/TwilioNumberManager";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -350,10 +351,12 @@ const Home = () => {
                   "User"}
                 !
               </h1>
-              <p className="text-gray-600">Welcome back to your dashboard</p>
+              <p className="text-gray-600">
+                Welcome back to your NumSphere dashboard
+              </p>
             </div>
             <DashboardGrid isLoading={loading} />
-            <TaskBoard isLoading={loading} />
+            <TwilioNumberManager />
           </div>
         </main>
       </div>

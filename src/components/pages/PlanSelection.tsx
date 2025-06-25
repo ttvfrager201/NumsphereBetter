@@ -180,6 +180,10 @@ export default function PlanSelection() {
 
       console.log("Redirecting to Stripe checkout:", data.url);
 
+      // Store plan selection for post-payment Twilio number purchase
+      sessionStorage.setItem("selectedPlan", planId);
+      sessionStorage.setItem("userId", user.id);
+
       // Redirect to Stripe checkout
       window.location.href = data.url;
     } catch (error) {
