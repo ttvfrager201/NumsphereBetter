@@ -67,13 +67,26 @@ export default function ForgotPasswordForm() {
     setError("");
 
     try {
+      console.log(
+        "[ForgotPassword] Starting password reset process for:",
+        email,
+      );
+      const startTime = Date.now();
+
       await resetPassword(email);
+
+      const endTime = Date.now();
+      console.log(
+        `[ForgotPassword] Password reset completed in ${endTime - startTime}ms`,
+      );
+
       setEmailSent(true);
       toast({
         title: "Reset link sent!",
         description: "Please check your email for the password reset link.",
       });
     } catch (error: any) {
+      console.error("[ForgotPassword] Password reset error:", error);
       setError(error.message || "Failed to send reset email");
       toast({
         title: "Failed to send reset email",

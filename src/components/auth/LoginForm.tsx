@@ -3,7 +3,7 @@ import { useAuth } from "../../../supabase/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Mail, Lock, Eye, EyeOff, Phone } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
@@ -61,8 +61,9 @@ export default function LoginForm() {
   const [isLoading, setIsLoading] = useState(false);
   const [currentTestimonial, setCurrentTestimonial] = useState(0);
   const [isAnimating, setIsAnimating] = useState(false);
-  const { signIn, signInWithFacebook } = useAuth();
+  const { signIn, signInWithFacebook, shouldSkipOtp } = useAuth();
   const { toast } = useToast();
+  const navigate = useNavigate();
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -83,10 +84,22 @@ export default function LoginForm() {
 
     try {
       await signIn(email, password);
-      toast({
-        title: "Welcome back!",
-        description: "You have successfully signed in to NumSphere.",
-      });
+
+      // Check if device is trusted and skip OTP if so
+      if (shouldSkipOtp(email)) {
+        toast({
+          title: "Welcome back!",
+          description: "Signed in successfully using trusted device.",
+        });
+        navigate("/dashboard");
+      } else {
+        toast({
+          title: "Welcome back!",
+          description: "You have successfully signed in to NumSphere.",
+        });
+        // Navigate to dashboard after successful login
+        navigate("/dashboard");
+      }
     } catch (error: any) {
       setError(error.message || "Failed to sign in");
       toast({

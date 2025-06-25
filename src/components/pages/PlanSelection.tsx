@@ -7,9 +7,24 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
-import { Check, Phone, Zap, Building, Crown } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import {
+  Check,
+  Phone,
+  Zap,
+  Building,
+  Crown,
+  ChevronDown,
+  LogOut,
+} from "lucide-react";
+import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../../../supabase/auth";
 import { useToast } from "@/components/ui/use-toast";
 import { supabase } from "../../../supabase/supabase";
@@ -76,8 +91,22 @@ export default function PlanSelection() {
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
   const { toast } = useToast();
+
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+      navigate("/");
+    } catch (error) {
+      console.error("Sign out error:", error);
+      toast({
+        title: "Error",
+        description: "Failed to sign out. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
 
   const handlePlanSelect = async (planId: string) => {
     if (!user) {
@@ -172,15 +201,32 @@ export default function PlanSelection() {
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
+            <Link
+              to="/"
+              className="flex items-center space-x-3 hover:opacity-80 transition-opacity"
+            >
               <div className="inline-flex items-center justify-center w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl">
                 <Phone className="h-6 w-6 text-white" />
               </div>
               <h1 className="text-2xl font-bold text-gray-900">NumSphere</h1>
-            </div>
-            <div className="text-sm text-gray-600">
-              Welcome, {user?.user_metadata?.full_name || user?.email}
-            </div>
+            </Link>
+            <DropdownMenu>
+              <DropdownMenuTrigger className="flex items-center space-x-2 text-sm text-gray-600 hover:text-gray-800 transition-colors cursor-pointer">
+                <span>
+                  Welcome, {user?.user_metadata?.full_name || user?.email}
+                </span>
+                <ChevronDown className="h-4 w-4" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem
+                  onClick={handleSignOut}
+                  className="text-red-600 hover:text-red-700 hover:bg-red-50 cursor-pointer"
+                >
+                  <LogOut className="h-4 w-4 mr-2" />
+                  Sign Out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </header>

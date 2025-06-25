@@ -3,7 +3,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
-import { Mail, RefreshCw, Phone } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Mail, RefreshCw, Phone, Shield } from "lucide-react";
 import AuthLayout from "./AuthLayout";
 import { useToast } from "@/components/ui/use-toast";
 import { useAuth } from "../../../supabase/auth";
@@ -26,6 +27,7 @@ export default function OtpVerification({
   const [error, setError] = useState("");
   const [countdown, setCountdown] = useState(0);
   const [canResend, setCanResend] = useState(true);
+  const [rememberDevice, setRememberDevice] = useState(false);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const { verifyOtp, resendOtp } = useAuth();
   const navigate = useNavigate();
@@ -61,6 +63,32 @@ export default function OtpVerification({
     }
   };
 
+  // Generate a unique device identifier
+  const generateDeviceId = () => {
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    ctx!.textBaseline = "top";
+    ctx!.font = "14px Arial";
+    ctx!.fillText("Device fingerprint", 2, 2);
+
+    const fingerprint = [
+      navigator.userAgent,
+      navigator.language,
+      screen.width + "x" + screen.height,
+      new Date().getTimezoneOffset(),
+      canvas.toDataURL(),
+    ].join("|");
+
+    // Simple hash function
+    let hash = 0;
+    for (let i = 0; i < fingerprint.length; i++) {
+      const char = fingerprint.charCodeAt(i);
+      hash = (hash << 5) - hash + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    return Math.abs(hash).toString(36);
+  };
+
   const handleKeyDown = (index: number, e: React.KeyboardEvent) => {
     if (e.key === "Backspace" && !otp[index] && index > 0) {
       inputRefs.current[index - 1]?.focus();
@@ -80,7 +108,31 @@ export default function OtpVerification({
     setError("");
 
     try {
-      await verifyOtp(email, otpCode, type);
+      await verifyOtp(email, otpCode, type, rememberDevice);
+
+      // Store device trust if user opted to remember
+      if (rememberDevice) {
+        const deviceId = generateDeviceId();
+        const expiryDate = new Date();
+        expiryDate.setDate(expiryDate.getDate() + 30);
+
+        localStorage.setItem(
+          "trusted_device",
+          JSON.stringify({
+            deviceId,
+            email,
+            expiryDate: expiryDate.toISOString(),
+            createdAt: new Date().toISOString(),
+          }),
+        );
+
+        toast({
+          title: "Device remembered!",
+          description:
+            "You won't need to verify OTP on this device for 30 days.",
+        });
+      }
+
       toast({
         title: "Verification successful!",
         description:
@@ -183,6 +235,33 @@ export default function OtpVerification({
               <p className="text-sm text-red-600 font-medium">{error}</p>
             </div>
           )}
+
+          <div className="space-y-4">
+            <div className="flex items-center space-x-3 p-3 bg-blue-50 rounded-xl border border-blue-100">
+              <Checkbox
+                id="remember-device"
+                checked={rememberDevice}
+                onCheckedChange={(checked) =>
+                  setRememberDevice(checked as boolean)
+                }
+                className="data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600"
+              />
+              <div className="flex items-center space-x-2">
+                <Shield className="h-4 w-4 text-blue-600" />
+                <Label
+                  htmlFor="remember-device"
+                  className="text-sm font-medium text-blue-900 cursor-pointer"
+                >
+                  Remember this device for 30 days
+                </Label>
+              </div>
+            </div>
+            <p className="text-xs text-gray-500 px-1">
+              {rememberDevice
+                ? "You won't need to enter OTP codes on this device for the next 30 days."
+                : "Check the box above to skip OTP verification on this device for 30 days."}
+            </p>
+          </div>
 
           <Button
             type="submit"

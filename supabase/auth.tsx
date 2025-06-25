@@ -14,7 +14,10 @@ type AuthContextType = {
     email: string,
     token: string,
     type: "signup" | "email",
+    rememberDevice?: boolean,
   ) => Promise<void>;
+  isDeviceTrusted: (email: string) => boolean;
+  shouldSkipOtp: (email: string) => boolean;
   resendOtp: (email: string, type: "signup" | "email") => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -177,6 +180,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     email: string,
     token: string,
     type: "signup" | "email",
+    rememberDevice?: boolean,
   ) => {
     const { error } = await supabase.auth.verifyOtp({
       email,
@@ -184,6 +188,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       type,
     });
     if (error) throw error;
+
+    // Device remembering is handled in the component
+    console.log("OTP verified successfully", { rememberDevice });
+  };
+
+  const isDeviceTrusted = (email: string): boolean => {
+    try {
+      const trustedDevice = localStorage.getItem("trusted_device");
+      if (!trustedDevice) return false;
+
+      const deviceData = JSON.parse(trustedDevice);
+      const now = new Date();
+      const expiryDate = new Date(deviceData.expiryDate);
+
+      // Check if device trust has expired
+      if (now > expiryDate) {
+        localStorage.removeItem("trusted_device");
+        return false;
+      }
+
+      // Check if email matches
+      return deviceData.email === email;
+    } catch (error) {
+      console.error("Error checking device trust:", error);
+      localStorage.removeItem("trusted_device");
+      return false;
+    }
+  };
+
+  const shouldSkipOtp = (email: string): boolean => {
+    return isDeviceTrusted(email);
   };
 
   const resendOtp = async (email: string, type: "signup" | "email") => {
@@ -199,10 +234,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const resetPassword = async (email: string) => {
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`,
-    });
-    if (error) throw error;
+    console.log("[Auth] Initiating password reset for:", email);
+    const startTime = Date.now();
+
+    try {
+      const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+
+      const endTime = Date.now();
+      console.log(
+        `[Auth] Supabase resetPasswordForEmail completed in ${endTime - startTime}ms`,
+      );
+      console.log("[Auth] Reset password response:", { data, error });
+
+      if (error) {
+        console.error("[Auth] Reset password error:", error);
+        throw error;
+      }
+
+      console.log("[Auth] Password reset email request successful");
+    } catch (error) {
+      console.error("[Auth] Password reset failed:", error);
+      throw error;
+    }
   };
 
   const signOut = async () => {
@@ -224,6 +279,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         resendOtp,
         resetPassword,
         signOut,
+        isDeviceTrusted,
+        shouldSkipOtp,
       }}
     >
       {children}

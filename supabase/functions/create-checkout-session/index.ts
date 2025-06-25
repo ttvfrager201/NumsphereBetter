@@ -79,7 +79,7 @@ Deno.serve(async (req) => {
   const stripe = new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" });
 
   try {
-    const origin = "https://magical-hawking7-mqqtn.view-3.tempo-dev.app";
+    const origin = "https://boring-rubin1-9ntnx.view-3.tempo-dev.app";
 
     const checkoutSession = await stripe.checkout.sessions.create({
       mode: "subscription",
