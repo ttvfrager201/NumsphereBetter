@@ -110,8 +110,8 @@ export default function LandingPage() {
 
       <main className="pt-12">
         {/* Hero section */}
-        <section className="py-24 text-center relative overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-br from-blue-50/50 via-transparent to-purple-50/50" />
+        <section className="py-32 text-center relative overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-br from-blue-50/80 via-purple-50/40 to-indigo-50/60" />
           {/* Floating SVG Background Elements */}
           <div className="absolute inset-0 overflow-hidden pointer-events-none">
             <svg
@@ -161,53 +161,56 @@ export default function LandingPage() {
               </svg>
               <div className="absolute -inset-2 bg-gradient-to-r from-blue-400 to-purple-500 rounded-3xl opacity-20 animate-pulse" />
             </div>
-            <h1 className="text-6xl md:text-7xl font-bold tracking-tight mb-6 bg-gradient-to-r from-gray-900 via-blue-900 to-purple-900 bg-clip-text text-transparent">
+            <h1 className="text-7xl md:text-8xl font-extrabold tracking-tight mb-8 bg-gradient-to-r from-slate-900 via-blue-800 to-purple-800 bg-clip-text text-transparent leading-tight">
               Business VoIP
               <br />
-              <span className="text-5xl md:text-6xl">Made Simple</span>
+              <span className="text-6xl md:text-7xl bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                Made Simple
+              </span>
             </h1>
-            <p className="text-xl md:text-2xl font-medium text-gray-600 mb-8 max-w-3xl mx-auto leading-relaxed">
+            <p className="text-2xl md:text-3xl font-medium text-gray-700 mb-10 max-w-4xl mx-auto leading-relaxed">
               Get your virtual phone number and start making professional calls
               in minutes.
-              <span className="text-blue-600 font-semibold">
-                No setup fees, no contracts.
+              <br />
+              <span className="text-blue-600 font-bold text-xl md:text-2xl">
+                No setup fees, no contracts, no hassle.
               </span>
             </p>
-            <div className="flex flex-col sm:flex-row justify-center items-center space-y-4 sm:space-y-0 sm:space-x-6 mb-12">
+            <div className="flex flex-col sm:flex-row justify-center items-center space-y-6 sm:space-y-0 sm:space-x-8 mb-16">
               <Link to="/signup">
-                <Button className="h-14 px-8 rounded-2xl bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:from-blue-700 hover:to-purple-700 text-lg font-semibold shadow-2xl hover:shadow-3xl transition-all duration-300 transform hover:scale-105">
+                <Button className="h-16 px-12 rounded-2xl bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 text-white hover:from-blue-700 hover:via-purple-700 hover:to-indigo-700 text-xl font-bold shadow-2xl hover:shadow-3xl transition-all duration-300 transform hover:scale-105 hover:-translate-y-1">
                   Start Free Trial
-                  <ChevronRight className="ml-2 h-5 w-5" />
+                  <ChevronRight className="ml-3 h-6 w-6" />
                 </Button>
               </Link>
               <Link
                 to="/"
-                className="flex items-center text-lg font-semibold text-gray-700 hover:text-blue-600 transition-colors group"
+                className="flex items-center text-xl font-bold text-gray-700 hover:text-blue-600 transition-all duration-300 group px-6 py-3 rounded-xl hover:bg-white/50 backdrop-blur-sm"
               >
                 View Plans
-                <ChevronRight className="ml-2 h-5 w-5 group-hover:translate-x-1 transition-transform" />
+                <ChevronRight className="ml-3 h-6 w-6 group-hover:translate-x-2 transition-transform duration-300" />
               </Link>
             </div>
 
             {/* Trust indicators */}
-            <div className="flex flex-wrap justify-center items-center space-x-8 text-sm text-gray-500">
-              <div className="flex items-center space-x-2">
-                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                <span>99.9% Uptime</span>
+            <div className="flex flex-wrap justify-center items-center space-x-12 text-lg text-gray-600">
+              <div className="flex items-center space-x-3 bg-white/60 backdrop-blur-sm px-6 py-3 rounded-full shadow-lg">
+                <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse shadow-lg" />
+                <span className="font-semibold">99.9% Uptime</span>
               </div>
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-3 bg-white/60 backdrop-blur-sm px-6 py-3 rounded-full shadow-lg">
                 <svg
-                  className="w-4 h-4 text-yellow-500"
+                  className="w-5 h-5 text-yellow-500"
                   fill="currentColor"
                   viewBox="0 0 20 20"
                 >
                   <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
                 </svg>
-                <span>5-Star Rated</span>
+                <span className="font-semibold">5-Star Rated</span>
               </div>
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-3 bg-white/60 backdrop-blur-sm px-6 py-3 rounded-full shadow-lg">
                 <svg
-                  className="w-4 h-4 text-blue-500"
+                  className="w-5 h-5 text-blue-500"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -219,20 +222,23 @@ export default function LandingPage() {
                     d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
                   />
                 </svg>
-                <span>Enterprise Security</span>
+                <span className="font-semibold">Enterprise Security</span>
               </div>
             </div>
           </div>
         </section>
 
         {/* Features section */}
-        <section className="py-24 bg-gradient-to-br from-gray-50 to-blue-50/30">
+        <section className="py-32 bg-gradient-to-br from-slate-50 via-blue-50/50 to-purple-50/30 relative overflow-hidden">
+          {/* Background decoration */}
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(59,130,246,0.1),transparent_50%)] pointer-events-none" />
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_80%,rgba(147,51,234,0.1),transparent_50%)] pointer-events-none" />
           <div className="max-w-7xl mx-auto px-6">
-            <div className="text-center mb-16">
-              <h2 className="text-5xl md:text-6xl font-bold tracking-tight mb-6 bg-gradient-to-r from-gray-900 to-blue-900 bg-clip-text text-transparent">
+            <div className="text-center mb-20 relative z-10">
+              <h2 className="text-6xl md:text-7xl font-extrabold tracking-tight mb-8 bg-gradient-to-r from-slate-900 via-blue-800 to-purple-800 bg-clip-text text-transparent">
                 Professional VoIP Features
               </h2>
-              <p className="text-xl md:text-2xl font-medium text-gray-600 mb-8 max-w-3xl mx-auto">
+              <p className="text-2xl md:text-3xl font-medium text-gray-700 mb-10 max-w-4xl mx-auto leading-relaxed">
                 Everything your business needs for seamless communication
               </p>
               <div className="flex flex-col sm:flex-row justify-center items-center space-y-4 sm:space-y-0 sm:space-x-8">
@@ -253,11 +259,11 @@ export default function LandingPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-              <div className="group bg-white p-8 rounded-3xl shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-2 border border-gray-100">
-                <div className="h-16 w-16 bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-10 relative z-10">
+              <div className="group bg-white/80 backdrop-blur-sm p-10 rounded-3xl shadow-xl hover:shadow-2xl transition-all duration-500 transform hover:-translate-y-3 border border-white/50 hover:border-blue-200/50">
+                <div className="h-20 w-20 bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-600 rounded-3xl flex items-center justify-center mb-8 group-hover:scale-110 group-hover:rotate-3 transition-all duration-500 shadow-lg">
                   <svg
-                    className="h-8 w-8 text-white"
+                    className="h-10 w-10 text-white"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -270,10 +276,10 @@ export default function LandingPage() {
                     />
                   </svg>
                 </div>
-                <h4 className="text-2xl font-bold mb-4 text-gray-900">
+                <h4 className="text-3xl font-bold mb-6 text-gray-900">
                   Virtual Phone Numbers
                 </h4>
-                <p className="text-gray-600 leading-relaxed">
+                <p className="text-gray-600 leading-relaxed text-lg">
                   Get instant access to professional phone numbers with
                   automatic provisioning and management. Choose from local,
                   toll-free, or international numbers.
@@ -284,10 +290,10 @@ export default function LandingPage() {
                 </div>
               </div>
 
-              <div className="group bg-white p-8 rounded-3xl shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-2 border border-gray-100">
-                <div className="h-16 w-16 bg-gradient-to-br from-purple-500 to-purple-600 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
+              <div className="group bg-white/80 backdrop-blur-sm p-10 rounded-3xl shadow-xl hover:shadow-2xl transition-all duration-500 transform hover:-translate-y-3 border border-white/50 hover:border-purple-200/50">
+                <div className="h-20 w-20 bg-gradient-to-br from-purple-500 via-purple-600 to-pink-600 rounded-3xl flex items-center justify-center mb-8 group-hover:scale-110 group-hover:rotate-3 transition-all duration-500 shadow-lg">
                   <svg
-                    className="h-8 w-8 text-white"
+                    className="h-10 w-10 text-white"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -300,10 +306,10 @@ export default function LandingPage() {
                     />
                   </svg>
                 </div>
-                <h4 className="text-2xl font-bold mb-4 text-gray-900">
+                <h4 className="text-3xl font-bold mb-6 text-gray-900">
                   Usage Analytics
                 </h4>
-                <p className="text-gray-600 leading-relaxed">
+                <p className="text-gray-600 leading-relaxed text-lg">
                   Track your call minutes, monitor usage patterns, and optimize
                   your communication costs with detailed analytics and
                   reporting.
@@ -314,10 +320,10 @@ export default function LandingPage() {
                 </div>
               </div>
 
-              <div className="group bg-white p-8 rounded-3xl shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-2 border border-gray-100">
-                <div className="h-16 w-16 bg-gradient-to-br from-green-500 to-green-600 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
+              <div className="group bg-white/80 backdrop-blur-sm p-10 rounded-3xl shadow-xl hover:shadow-2xl transition-all duration-500 transform hover:-translate-y-3 border border-white/50 hover:border-green-200/50">
+                <div className="h-20 w-20 bg-gradient-to-br from-green-500 via-green-600 to-emerald-600 rounded-3xl flex items-center justify-center mb-8 group-hover:scale-110 group-hover:rotate-3 transition-all duration-500 shadow-lg">
                   <svg
-                    className="h-8 w-8 text-white"
+                    className="h-10 w-10 text-white"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -330,10 +336,10 @@ export default function LandingPage() {
                     />
                   </svg>
                 </div>
-                <h4 className="text-2xl font-bold mb-4 text-gray-900">
+                <h4 className="text-3xl font-bold mb-6 text-gray-900">
                   Custom Call Flows
                 </h4>
-                <p className="text-gray-600 leading-relaxed">
+                <p className="text-gray-600 leading-relaxed text-lg">
                   Design personalized call routing with our intuitive
                   drag-and-drop flow editor. Create complex workflows without
                   any coding.

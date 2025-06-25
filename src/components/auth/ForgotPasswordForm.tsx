@@ -8,6 +8,7 @@ import { Link } from "react-router-dom";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Mail, Phone, ArrowLeft, CheckCircle } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
+import OtpVerification from "./OtpVerification";
 
 const testimonials = [
   {
@@ -44,7 +45,7 @@ export default function ForgotPasswordForm() {
   const [email, setEmail] = useState("");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [emailSent, setEmailSent] = useState(false);
+  const [showOtpVerification, setShowOtpVerification] = useState(false);
   const [currentTestimonial, setCurrentTestimonial] = useState(0);
   const [isAnimating, setIsAnimating] = useState(false);
   const { resetPassword } = useAuth();
@@ -63,30 +64,40 @@ export default function ForgotPasswordForm() {
   }, []);
 
   const handlePasswordReset = async (email: string) => {
-    console.log("[ForgotPassword] Starting password reset process for:", email);
+    console.log(
+      "[ForgotPassword] Starting OTP-based password reset for:",
+      email,
+    );
 
     try {
-      // Directly call Supabase without rate limiting
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/reset-password`,
+      // Send OTP specifically for password reset
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: {
+          shouldCreateUser: false,
+          data: {
+            type: "password_reset",
+          },
+        },
       });
 
       if (error) {
-        console.error("[ForgotPassword] Reset password error:", error);
+        console.error("[ForgotPassword] OTP send error:", error);
         throw error;
       }
 
-      console.log("[ForgotPassword] Password reset email sent successfully");
-      setEmailSent(true);
+      console.log("[ForgotPassword] Password reset OTP sent successfully");
+      setShowOtpVerification(true);
       toast({
-        title: "Reset link sent!",
-        description: "Please check your email for the password reset link.",
+        title: "Password reset code sent!",
+        description:
+          "Please check your email for the 6-digit password reset code.",
       });
     } catch (error: any) {
       console.error("[ForgotPassword] Password reset error:", error);
-      setError(error.message || "Failed to send reset email");
+      setError(error.message || "Failed to send verification code");
       toast({
-        title: "Failed to send reset email",
+        title: "Failed to send verification code",
         description: "Please check your email address and try again.",
         variant: "destructive",
       });
@@ -109,19 +120,13 @@ export default function ForgotPasswordForm() {
 
       const endTime = Date.now();
       console.log(
-        `[ForgotPassword] Password reset completed in ${endTime - startTime}ms`,
+        `[ForgotPassword] OTP send completed in ${endTime - startTime}ms`,
       );
-
-      setEmailSent(true);
-      toast({
-        title: "Reset link sent!",
-        description: "Please check your email for the password reset link.",
-      });
     } catch (error: any) {
       console.error("[ForgotPassword] Password reset error:", error);
-      setError(error.message || "Failed to send reset email");
+      setError(error.message || "Failed to send verification code");
       toast({
-        title: "Failed to send reset email",
+        title: "Failed to send verification code",
         description: "Please check your email address and try again.",
         variant: "destructive",
       });
@@ -130,7 +135,17 @@ export default function ForgotPasswordForm() {
     }
   };
 
-  if (emailSent) {
+  if (showOtpVerification) {
+    return (
+      <OtpVerification
+        email={email}
+        type="password_reset"
+        onBack={() => setShowOtpVerification(false)}
+      />
+    );
+  }
+
+  if (false) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-blue-50 flex">
         {/* Left side - Testimonials */}
@@ -316,8 +331,8 @@ export default function ForgotPasswordForm() {
               Reset your password
             </h2>
             <p className="text-gray-600">
-              Enter your email address and we'll send you a link to reset your
-              password.
+              Enter your email address and we'll send you a verification code to
+              reset your password.
             </p>
           </div>
 
@@ -358,10 +373,10 @@ export default function ForgotPasswordForm() {
               {isLoading ? (
                 <div className="flex items-center justify-center">
                   <LoadingSpinner size="sm" className="mr-2" />
-                  Sending reset link...
+                  Sending verification code...
                 </div>
               ) : (
-                "Send reset link"
+                "Send verification code"
               )}
             </Button>
 

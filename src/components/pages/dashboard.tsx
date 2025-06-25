@@ -46,8 +46,7 @@ const Home = () => {
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("Home");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [avatarFile, setAvatarFile] = useState<File | null>(null);
-  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+
   const [formData, setFormData] = useState({
     email: "",
     currentPassword: "",
@@ -100,82 +99,6 @@ const Home = () => {
       setIsSettingsOpen(true);
     } else {
       setActiveTab(label);
-    }
-  };
-
-  const handleAvatarChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      setAvatarFile(file);
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setAvatarPreview(e.target?.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleUpdateAvatar = async () => {
-    if (!avatarFile || !user) return;
-
-    try {
-      const fileExt = avatarFile.name.split(".").pop();
-      const fileName = `${user.id}-${Date.now()}.${fileExt}`;
-      const filePath = `avatars/${fileName}`;
-
-      // Remove old avatar if exists
-      if (userProfile?.avatar_url) {
-        const oldPath = userProfile.avatar_url.split("/").pop();
-        if (oldPath && oldPath.includes(user.id)) {
-          await supabase.storage.from("avatars").remove([`avatars/${oldPath}`]);
-        }
-      }
-
-      // Upload the new file
-      const { error: uploadError } = await supabase.storage
-        .from("avatars")
-        .upload(filePath, avatarFile, { upsert: true });
-
-      if (uploadError) {
-        console.error("Upload error:", uploadError);
-        throw uploadError;
-      }
-
-      // Get the public URL with cache busting
-      const { data } = supabase.storage.from("avatars").getPublicUrl(filePath);
-      const avatarUrl = `${data.publicUrl}?t=${Date.now()}`;
-
-      // Update the user's avatar URL in the database
-      const { error: updateError } = await supabase
-        .from("users")
-        .update({ avatar_url: avatarUrl })
-        .eq("id", user.id);
-
-      if (updateError) {
-        console.error("Database update error:", updateError);
-        throw updateError;
-      }
-
-      // Update local state immediately
-      setUserProfile((prev) =>
-        prev
-          ? { ...prev, avatar_url: avatarUrl }
-          : { full_name: null, avatar_url: avatarUrl },
-      );
-
-      toast({
-        title: "Success",
-        description: "Avatar updated successfully!",
-      });
-      setAvatarFile(null);
-      setAvatarPreview(null);
-    } catch (error) {
-      console.error("Error updating avatar:", error);
-      toast({
-        title: "Error",
-        description: "Failed to update avatar. Please try again.",
-        variant: "destructive",
-      });
     }
   };
 
@@ -355,7 +278,7 @@ const Home = () => {
                 Welcome back to your NumSphere dashboard
               </p>
             </div>
-            <DashboardGrid isLoading={loading} />
+
             <TwilioNumberManager />
           </div>
         </main>
@@ -391,38 +314,17 @@ const Home = () => {
                 <CardContent className="space-y-4">
                   <div className="flex items-center gap-4">
                     <Avatar className="h-20 w-20">
-                      <AvatarImage
-                        src={
-                          avatarPreview ||
-                          userProfile?.avatar_url ||
-                          `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.email}`
-                        }
-                        alt="Profile"
-                      />
-                      <AvatarFallback>
-                        {userProfile?.full_name?.[0]?.toUpperCase() ||
-                          user?.email?.[0]?.toUpperCase()}
+                      <AvatarFallback className="bg-gray-100">
+                        <User className="h-10 w-10 text-gray-400" />
                       </AvatarFallback>
                     </Avatar>
                     <div className="space-y-2">
-                      <Label htmlFor="avatar-upload" className="cursor-pointer">
-                        <div className="flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors">
-                          <Upload className="h-4 w-4" />
-                          Choose File
-                        </div>
-                        <Input
-                          id="avatar-upload"
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={handleAvatarChange}
-                        />
-                      </Label>
-                      {avatarFile && (
-                        <Button onClick={handleUpdateAvatar} size="sm">
-                          Update Avatar
-                        </Button>
-                      )}
+                      <p className="text-sm text-gray-500">
+                        Default profile image
+                      </p>
+                      <p className="text-xs text-gray-400">
+                        Avatar functionality disabled
+                      </p>
                     </div>
                   </div>
                 </CardContent>

@@ -12,7 +12,7 @@ import { useNavigate } from "react-router-dom";
 
 interface OtpVerificationProps {
   email: string;
-  type: "signup" | "email" | "signin";
+  type: "signup" | "email" | "signin" | "password_reset";
   onBack: () => void;
 }
 
@@ -108,10 +108,12 @@ export default function OtpVerification({
     setError("");
 
     try {
-      await verifyOtp(email, otpCode, type, rememberDevice);
+      // Use different verification type for password reset
+      const verifyType = type === "password_reset" ? "email" : type;
+      await verifyOtp(email, otpCode, verifyType, rememberDevice);
 
-      // Store device trust if user opted to remember
-      if (rememberDevice) {
+      // Store device trust if user opted to remember (not for password reset)
+      if (rememberDevice && type !== "password_reset") {
         const deviceId = generateDeviceId();
         const expiryDate = new Date();
         expiryDate.setDate(expiryDate.getDate() + 30);
@@ -140,14 +142,21 @@ export default function OtpVerification({
             ? "Welcome to NumSphere! Please select your plan."
             : type === "signin"
               ? "Welcome back! Device verified successfully."
-              : "Welcome back to NumSphere!",
+              : type === "password_reset"
+                ? "Email verified! You can now reset your password."
+                : "Welcome back to NumSphere!",
       });
 
       // Redirect based on verification type
       if (type === "signup") {
         navigate("/plan-selection");
+      } else if (type === "signin") {
+        navigate("/dashboard");
+      } else if (type === "password_reset") {
+        // For password reset, go to reset password form
+        navigate("/reset-password");
       } else {
-        // For existing users (signin or email change), go to dashboard
+        // For existing users (email change), go to dashboard
         navigate("/dashboard");
       }
     } catch (error: any) {
@@ -198,12 +207,18 @@ export default function OtpVerification({
             <Mail className="h-8 w-8 text-white" />
           </div>
           <h2 className="text-2xl font-bold text-gray-900 mb-2">
-            {type === "signin" ? "Device Verification" : "Verify Your Email"}
+            {type === "signin"
+              ? "Device Verification"
+              : type === "password_reset"
+                ? "Reset Password Verification"
+                : "Verify Your Email"}
           </h2>
           <p className="text-gray-600">
             {type === "signin"
               ? "For security, we've sent a verification code to"
-              : "We've sent a 6-digit code to"}
+              : type === "password_reset"
+                ? "We've sent a password reset code to"
+                : "We've sent a 6-digit code to"}
             <br />
             <span className="font-semibold text-gray-900">{email}</span>
           </p>
@@ -239,34 +254,35 @@ export default function OtpVerification({
             </div>
           )}
 
-          {(type === "signin" || type === "signup") && (
-            <div className="space-y-4">
-              <div className="flex items-center space-x-3 p-3 bg-blue-50 rounded-xl border border-blue-100">
-                <Checkbox
-                  id="remember-device"
-                  checked={rememberDevice}
-                  onCheckedChange={(checked) =>
-                    setRememberDevice(checked as boolean)
-                  }
-                  className="data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600"
-                />
-                <div className="flex items-center space-x-2">
-                  <Shield className="h-4 w-4 text-blue-600" />
-                  <Label
-                    htmlFor="remember-device"
-                    className="text-sm font-medium text-blue-900 cursor-pointer"
-                  >
-                    Remember this device for 30 days
-                  </Label>
+          {(type === "signin" || type === "signup") &&
+            type !== "password_reset" && (
+              <div className="space-y-4">
+                <div className="flex items-center space-x-3 p-3 bg-blue-50 rounded-xl border border-blue-100">
+                  <Checkbox
+                    id="remember-device"
+                    checked={rememberDevice}
+                    onCheckedChange={(checked) =>
+                      setRememberDevice(checked as boolean)
+                    }
+                    className="data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600"
+                  />
+                  <div className="flex items-center space-x-2">
+                    <Shield className="h-4 w-4 text-blue-600" />
+                    <Label
+                      htmlFor="remember-device"
+                      className="text-sm font-medium text-blue-900 cursor-pointer"
+                    >
+                      Remember this device for 30 days
+                    </Label>
+                  </div>
                 </div>
+                <p className="text-xs text-gray-500 px-1">
+                  {rememberDevice
+                    ? "You won't need to enter OTP codes on this device for the next 30 days."
+                    : "Check the box above to skip OTP verification on this device for 30 days."}
+                </p>
               </div>
-              <p className="text-xs text-gray-500 px-1">
-                {rememberDevice
-                  ? "You won't need to enter OTP codes on this device for the next 30 days."
-                  : "Check the box above to skip OTP verification on this device for 30 days."}
-              </p>
-            </div>
-          )}
+            )}
 
           <Button
             type="submit"
@@ -313,7 +329,12 @@ export default function OtpVerification({
               onClick={onBack}
               className="text-gray-600 hover:text-gray-700 font-semibold"
             >
-              ← Back to {type === "signup" ? "Sign Up" : "Sign In"}
+              ← Back to{" "}
+              {type === "signup"
+                ? "Sign Up"
+                : type === "password_reset"
+                  ? "Password Reset"
+                  : "Sign In"}
             </Button>
           </div>
         </form>

@@ -24,7 +24,7 @@ type AuthContextType = {
   shouldSkipOtp: (email: string) => boolean;
   resendOtp: (
     email: string,
-    type: "signup" | "email" | "signin",
+    type: "signup" | "email" | "signin" | "password_reset",
   ) => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -386,16 +386,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const resendOtp = async (
     email: string,
-    type: "signup" | "email" | "signin",
+    type: "signup" | "email" | "signin" | "password_reset",
   ) => {
-    const actualType = type === "signin" ? "email" : type;
+    const actualType =
+      type === "signin" || type === "password_reset" ? "email" : type;
 
-    if (type === "signin") {
-      // For sign in OTP, use signInWithOtp
+    if (type === "signin" || type === "password_reset") {
+      // For sign in OTP or password reset, use signInWithOtp
       const { error } = await supabase.auth.signInWithOtp({
         email,
         options: {
           shouldCreateUser: false,
+          data:
+            type === "password_reset" ? { type: "password_reset" } : undefined,
         },
       });
       if (error) throw error;

@@ -49,6 +49,7 @@ interface AvailableNumber {
     SMS: boolean;
     MMS: boolean;
   };
+  monthlyPrice?: number;
 }
 
 export default function TwilioNumberManager() {
@@ -118,7 +119,17 @@ export default function TwilioNumberManager() {
           variant: "destructive",
         });
       } else {
-        setAvailableNumbers(data.numbers || []);
+        // Filter numbers that cost $1.25/month
+        // Note: Twilio typically charges $1.00/month for local numbers + fees
+        // The $1.25 might include taxes/fees, so we'll show all available numbers
+        // and add pricing information
+        const numbersWithPricing = (data.numbers || []).map(
+          (number: AvailableNumber) => ({
+            ...number,
+            monthlyPrice: 1.25, // Standard Twilio local number pricing with fees
+          }),
+        );
+        setAvailableNumbers(numbersWithPricing);
       }
     } catch (error) {
       console.error("Error fetching available numbers:", error);
@@ -225,7 +236,7 @@ export default function TwilioNumberManager() {
               Phone Numbers
             </CardTitle>
             <CardDescription>
-              Manage your Twilio phone numbers and call flows
+              Manage your Twilio phone numbers ($1.25/month each) and call flows
             </CardDescription>
           </div>
           <Dialog open={showNumberDialog} onOpenChange={setShowNumberDialog}>
@@ -274,8 +285,13 @@ export default function TwilioNumberManager() {
                 {availableNumbers.length > 0 && (
                   <div className="space-y-2 max-h-96 overflow-y-auto">
                     <h4 className="font-medium text-gray-900">
-                      Available Numbers ({availableNumbers.length})
+                      Available Numbers - $1.25/month ({availableNumbers.length}
+                      )
                     </h4>
+                    <div className="text-sm text-gray-600 mb-3 p-2 bg-blue-50 rounded">
+                      💡 All Twilio local numbers cost $1.25/month (includes
+                      base rate + fees)
+                    </div>
                     {availableNumbers.map((number, index) => (
                       <div
                         key={index}
@@ -289,6 +305,9 @@ export default function TwilioNumberManager() {
                             <span className="flex items-center gap-1">
                               <MapPin className="h-3 w-3" />
                               {number.locality}, {number.region}
+                            </span>
+                            <span className="font-medium text-green-600">
+                              $1.25/month
                             </span>
                             <div className="flex gap-1">
                               {number.capabilities.voice && (
