@@ -12,7 +12,7 @@ import { useNavigate } from "react-router-dom";
 
 interface OtpVerificationProps {
   email: string;
-  type: "signup" | "email";
+  type: "signup" | "email" | "signin";
   onBack: () => void;
 }
 
@@ -138,15 +138,16 @@ export default function OtpVerification({
         description:
           type === "signup"
             ? "Welcome to NumSphere! Please select your plan."
-            : "Welcome back to NumSphere!",
+            : type === "signin"
+              ? "Welcome back! Device verified successfully."
+              : "Welcome back to NumSphere!",
       });
 
-      // Always redirect to plan selection for new users, dashboard for existing users
+      // Redirect based on verification type
       if (type === "signup") {
         navigate("/plan-selection");
       } else {
-        // For existing users, check if they have a plan selected
-        // For now, redirect to dashboard - you can add plan checking logic here
+        // For existing users (signin or email change), go to dashboard
         navigate("/dashboard");
       }
     } catch (error: any) {
@@ -197,10 +198,12 @@ export default function OtpVerification({
             <Mail className="h-8 w-8 text-white" />
           </div>
           <h2 className="text-2xl font-bold text-gray-900 mb-2">
-            Verify Your Email
+            {type === "signin" ? "Device Verification" : "Verify Your Email"}
           </h2>
           <p className="text-gray-600">
-            We've sent a 6-digit code to
+            {type === "signin"
+              ? "For security, we've sent a verification code to"
+              : "We've sent a 6-digit code to"}
             <br />
             <span className="font-semibold text-gray-900">{email}</span>
           </p>
@@ -236,32 +239,34 @@ export default function OtpVerification({
             </div>
           )}
 
-          <div className="space-y-4">
-            <div className="flex items-center space-x-3 p-3 bg-blue-50 rounded-xl border border-blue-100">
-              <Checkbox
-                id="remember-device"
-                checked={rememberDevice}
-                onCheckedChange={(checked) =>
-                  setRememberDevice(checked as boolean)
-                }
-                className="data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600"
-              />
-              <div className="flex items-center space-x-2">
-                <Shield className="h-4 w-4 text-blue-600" />
-                <Label
-                  htmlFor="remember-device"
-                  className="text-sm font-medium text-blue-900 cursor-pointer"
-                >
-                  Remember this device for 30 days
-                </Label>
+          {(type === "signin" || type === "signup") && (
+            <div className="space-y-4">
+              <div className="flex items-center space-x-3 p-3 bg-blue-50 rounded-xl border border-blue-100">
+                <Checkbox
+                  id="remember-device"
+                  checked={rememberDevice}
+                  onCheckedChange={(checked) =>
+                    setRememberDevice(checked as boolean)
+                  }
+                  className="data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600"
+                />
+                <div className="flex items-center space-x-2">
+                  <Shield className="h-4 w-4 text-blue-600" />
+                  <Label
+                    htmlFor="remember-device"
+                    className="text-sm font-medium text-blue-900 cursor-pointer"
+                  >
+                    Remember this device for 30 days
+                  </Label>
+                </div>
               </div>
+              <p className="text-xs text-gray-500 px-1">
+                {rememberDevice
+                  ? "You won't need to enter OTP codes on this device for the next 30 days."
+                  : "Check the box above to skip OTP verification on this device for 30 days."}
+              </p>
             </div>
-            <p className="text-xs text-gray-500 px-1">
-              {rememberDevice
-                ? "You won't need to enter OTP codes on this device for the next 30 days."
-                : "Check the box above to skip OTP verification on this device for 30 days."}
-            </p>
-          </div>
+          )}
 
           <Button
             type="submit"

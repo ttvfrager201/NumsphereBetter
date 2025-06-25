@@ -97,6 +97,7 @@ Deno.serve(async (req) => {
         user_id: userId,
         plan_id: planId,
         created_at: new Date().toISOString(),
+        auto_purchase_twilio: "true",
       },
       automatic_tax: { enabled: false }, // Disable for testing
       allow_promotion_codes: true,

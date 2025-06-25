@@ -7,6 +7,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Mail, Lock, Eye, EyeOff, Phone } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
+import OtpVerification from "./OtpVerification";
 
 const testimonials = [
   {
@@ -61,6 +62,7 @@ export default function LoginForm() {
   const [isLoading, setIsLoading] = useState(false);
   const [currentTestimonial, setCurrentTestimonial] = useState(0);
   const [isAnimating, setIsAnimating] = useState(false);
+  const [showOtpVerification, setShowOtpVerification] = useState(false);
   const { signIn, signInWithFacebook, shouldSkipOtp } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -83,21 +85,19 @@ export default function LoginForm() {
     setError("");
 
     try {
-      await signIn(email, password);
+      const result = await signIn(email, password);
 
-      // Check if device is trusted and skip OTP if so
-      if (shouldSkipOtp(email)) {
+      if (result.requiresOtp) {
+        setShowOtpVerification(true);
         toast({
-          title: "Welcome back!",
-          description: "Signed in successfully using trusted device.",
+          title: "Verification required",
+          description: "Please check your email for the verification code.",
         });
-        navigate("/dashboard");
       } else {
         toast({
           title: "Welcome back!",
           description: "You have successfully signed in to NumSphere.",
         });
-        // Navigate to dashboard after successful login
         navigate("/dashboard");
       }
     } catch (error: any) {
@@ -113,6 +113,10 @@ export default function LoginForm() {
     }
   };
 
+  const handleBackToSignIn = () => {
+    setShowOtpVerification(false);
+  };
+
   const handleFacebookSignIn = async () => {
     try {
       await signInWithFacebook();
@@ -125,6 +129,16 @@ export default function LoginForm() {
       });
     }
   };
+
+  if (showOtpVerification) {
+    return (
+      <OtpVerification
+        email={email}
+        type="signin"
+        onBack={handleBackToSignIn}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex">
