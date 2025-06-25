@@ -1,23 +1,15 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { User } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
-import { useNavigate } from "react-router-dom";
-import type { MobileOtpType } from "@supabase/supabase-js";
 
 type AuthContextType = {
   user: User | null;
   loading: boolean;
   hasCompletedPayment: boolean;
   checkPaymentStatus: () => Promise<boolean>;
-  signIn: (
-    email: string,
-    password: string,
-  ) => Promise<{ needsOtp: boolean; error?: string }>;
-  signUp: (
-    email: string,
-    password: string,
-    fullName: string,
-  ) => Promise<{ needsOtp: boolean; error?: string }>;
+  signUp: (email: string, password: string, fullName: string) => Promise<void>;
+  signIn: (email: string, password: string) => Promise<void>;
+  signInWithFacebook: () => Promise<void>;
   verifyOtp: (
     email: string,
     token: string,
@@ -144,194 +136,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signUp = async (email: string, password: string, fullName: string) => {
-    try {
-      // Try to sign up the user directly without checking existing user first
-      const { error: signUpError } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            full_name: fullName,
-          },
-          emailRedirectTo: undefined, // Prevent magic link
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          full_name: fullName,
         },
-      });
-
-      if (signUpError) {
-        if (
-          signUpError.message.includes("already registered") ||
-          signUpError.message.includes("already exists") ||
-          signUpError.message.includes("User already registered")
-        ) {
-          return {
-            needsOtp: false,
-            error:
-              "An account with this email already exists. Please sign in instead.",
-          };
-        }
-
-        // Handle rate limit errors gracefully - don't throw, just return error
-        if (
-          signUpError.message.includes("rate") ||
-          signUpError.message.includes("too many") ||
-          signUpError.message.includes("exceeded") ||
-          signUpError.message.includes("Email rate limit exceeded")
-        ) {
-          return {
-            needsOtp: false,
-            error:
-              "Please wait a moment before trying again. Email service is temporarily busy.",
-          };
-        }
-
-        // For other errors, return them instead of throwing
-        return {
-          needsOtp: false,
-          error: signUpError.message || "Error creating account",
-        };
-      }
-
-      return { needsOtp: true };
-    } catch (error: any) {
-      // Catch any unexpected errors and handle rate limits
-      if (
-        error.message?.includes("rate") ||
-        error.message?.includes("too many") ||
-        error.message?.includes("exceeded") ||
-        error.message?.includes("Email rate limit exceeded")
-      ) {
-        return {
-          needsOtp: false,
-          error:
-            "Please wait a moment before trying again. Email service is temporarily busy.",
-        };
-      }
-
-      return {
-        needsOtp: false,
-        error: error.message || "Error creating account",
-      };
-    }
+        emailRedirectTo: `${window.location.origin}/dashboard`,
+      },
+    });
+    if (error) throw error;
+    console.log("Sign up successful, user needs to verify email:", data);
   };
 
   const signIn = async (email: string, password: string) => {
-    try {
-      // First try to sign in with password to validate credentials
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (error) {
-        // Handle rate limit errors gracefully
-        if (
-          error.message.includes("rate") ||
-          error.message.includes("too many") ||
-          error.message.includes("exceeded") ||
-          error.message.includes("Email rate limit exceeded")
-        ) {
-          throw new Error(
-            "Please wait a moment before trying again. Email service is temporarily busy.",
-          );
-        }
-
-        if (error.message.includes("Email not confirmed")) {
-          // Send OTP for email verification with rate limit handling
-          try {
-            const { error: otpError } = await supabase.auth.signInWithOtp({
-              email: email,
-              options: {
-                shouldCreateUser: false,
-                emailRedirectTo: undefined, // Prevent magic link
-              },
-            });
-            if (otpError) {
-              if (
-                otpError.message.includes("rate") ||
-                otpError.message.includes("too many") ||
-                otpError.message.includes("exceeded") ||
-                otpError.message.includes("Email rate limit exceeded")
-              ) {
-                throw new Error(
-                  "Please wait a moment before trying again. Email service is temporarily busy.",
-                );
-              }
-              throw otpError;
-            }
-            return { needsOtp: true };
-          } catch (otpError: any) {
-            if (
-              otpError.message?.includes("rate") ||
-              otpError.message?.includes("too many") ||
-              otpError.message?.includes("exceeded") ||
-              otpError.message?.includes("Email rate limit exceeded")
-            ) {
-              throw new Error(
-                "Please wait a moment before trying again. Email service is temporarily busy.",
-              );
-            }
-            throw otpError;
-          }
-        }
-        throw error;
-      }
-
-      // For existing confirmed users, sign them out and require OTP verification
-      await supabase.auth.signOut();
-      try {
-        const { error: otpError } = await supabase.auth.signInWithOtp({
-          email: email,
-          options: {
-            shouldCreateUser: false,
-            emailRedirectTo: undefined, // Prevent magic link
-          },
-        });
-
-        if (otpError) {
-          if (
-            otpError.message.includes("rate") ||
-            otpError.message.includes("too many") ||
-            otpError.message.includes("exceeded") ||
-            otpError.message.includes("Email rate limit exceeded")
-          ) {
-            throw new Error(
-              "Please wait a moment before trying again. Email service is temporarily busy.",
-            );
-          }
-          throw otpError;
-        }
-
-        return { needsOtp: true };
-      } catch (otpError: any) {
-        if (
-          otpError.message?.includes("rate") ||
-          otpError.message?.includes("too many") ||
-          otpError.message?.includes("exceeded") ||
-          otpError.message?.includes("Email rate limit exceeded")
-        ) {
-          throw new Error(
-            "Please wait a moment before trying again. Email service is temporarily busy.",
-          );
-        }
-        throw otpError;
-      }
-    } catch (error: any) {
-      // Final catch for any unexpected rate limit errors
-      if (
-        error.message?.includes("rate") ||
-        error.message?.includes("too many") ||
-        error.message?.includes("exceeded") ||
-        error.message?.includes("Email rate limit exceeded")
-      ) {
-        throw new Error(
-          "Please wait a moment before trying again. Email service is temporarily busy.",
-        );
-      }
-      throw error;
-    }
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+    if (error) throw error;
   };
 
-  type OtpType = "signup" | "email" | "email_change" | MobileOtpType;
+  const signInWithFacebook = async () => {
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: "facebook",
+      options: {
+        redirectTo: `${window.location.origin}/dashboard`,
+        queryParams: {
+          access_type: "offline",
+          prompt: "consent",
+        },
+      },
+    });
+    if (error) throw error;
+    console.log("Facebook OAuth initiated:", data);
+  };
 
   const verifyOtp = async (
     email: string,
@@ -341,39 +181,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { error } = await supabase.auth.verifyOtp({
       email,
       token,
-      type: type as OtpType, // <--- CAST HERE
+      type,
     });
     if (error) throw error;
   };
 
   const resendOtp = async (email: string, type: "signup" | "email") => {
-    const { error } = await supabase.auth.resend({
-      type: type as OtpType, // <--- CAST HERE
+    const { data, error } = await supabase.auth.resend({
+      type,
       email,
       options: {
-        emailRedirectTo: undefined,
+        emailRedirectTo: `${window.location.origin}/dashboard`,
       },
     });
     if (error) throw error;
+    console.log("OTP resent successfully:", data);
   };
 
   const resetPassword = async (email: string) => {
-    // Simply send the reset password email without validation
-    // Supabase will handle the email existence check internally
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${window.location.origin}/reset-password`,
     });
-
-    if (error) {
-      // If the error is about user not found, provide a user-friendly message
-      if (
-        error.message.includes("User not found") ||
-        error.message.includes("not found")
-      ) {
-        throw new Error("No account found with this email address.");
-      }
-      throw error;
-    }
+    if (error) throw error;
   };
 
   const signOut = async () => {
@@ -388,8 +217,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loading,
         hasCompletedPayment,
         checkPaymentStatus,
-        signIn,
         signUp,
+        signIn,
+        signInWithFacebook,
         verifyOtp,
         resendOtp,
         resetPassword,

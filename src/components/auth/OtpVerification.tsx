@@ -24,19 +24,29 @@ export default function OtpVerification({
   const [isLoading, setIsLoading] = useState(false);
   const [isResending, setIsResending] = useState(false);
   const [error, setError] = useState("");
-  const [countdown, setCountdown] = useState(60);
+  const [countdown, setCountdown] = useState(0);
+  const [canResend, setCanResend] = useState(true);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const { verifyOtp, resendOtp } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      setCountdown((prev) => (prev > 0 ? prev - 1 : 0));
-    }, 1000);
-
-    return () => clearInterval(timer);
+    // Start with ability to resend immediately
+    setCanResend(true);
+    setCountdown(0);
   }, []);
+
+  useEffect(() => {
+    if (countdown > 0) {
+      const timer = setTimeout(() => {
+        setCountdown(countdown - 1);
+      }, 1000);
+      return () => clearTimeout(timer);
+    } else if (countdown === 0 && !canResend) {
+      setCanResend(true);
+    }
+  }, [countdown, canResend]);
 
   const handleOtpChange = (index: number, value: string) => {
     if (value.length > 1) return;
@@ -100,18 +110,23 @@ export default function OtpVerification({
   };
 
   const handleResend = async () => {
+    if (!canResend || isResending) return;
+
     setIsResending(true);
     setError("");
+    setCanResend(false);
 
     try {
       await resendOtp(email, type);
-      setCountdown(60);
+      setCountdown(30); // Shorter cooldown
       toast({
         title: "Code resent!",
         description: "A new verification code has been sent to your email.",
       });
     } catch (error: any) {
+      console.error("Resend OTP error:", error);
       setError(error.message || "Failed to resend code");
+      setCanResend(true);
       toast({
         title: "Resend failed",
         description: "Please try again in a moment.",
@@ -187,28 +202,24 @@ export default function OtpVerification({
           <div className="text-center space-y-4">
             <p className="text-sm text-gray-500">Didn't receive the code?</p>
 
-            {countdown > 0 ? (
-              <p className="text-sm text-gray-400">
-                Resend code in {countdown} seconds
-              </p>
-            ) : (
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={handleResend}
-                disabled={isResending}
-                className="text-blue-600 hover:text-blue-700 font-semibold"
-              >
-                {isResending ? (
-                  <div className="flex items-center">
-                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                    Resending...
-                  </div>
-                ) : (
-                  "Resend Code"
-                )}
-              </Button>
-            )}
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={handleResend}
+              disabled={isResending || !canResend || countdown > 0}
+              className="text-blue-600 hover:text-blue-700 font-semibold disabled:opacity-50"
+            >
+              {isResending ? (
+                <div className="flex items-center">
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                  Resending...
+                </div>
+              ) : countdown > 0 ? (
+                `Resend in ${countdown}s`
+              ) : (
+                "Resend Code"
+              )}
+            </Button>
           </div>
 
           <div className="text-center">

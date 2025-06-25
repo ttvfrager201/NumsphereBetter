@@ -41,13 +41,21 @@ Deno.serve(async (req) => {
     );
   }
 
-  const planPriceMap = {
+  // Updated price IDs - make sure these match your Stripe dashboard
+  const planPriceMap: Record<string, string> = {
     starter: "price_1RcsXnB6b7vINOBHFKemTArF",
     business: "price_1RdKsrB6b7vINOBHH5zkVavh",
     enterprise: "price_1RdKtCB6b7vINOBHAJNJibdz",
   };
 
-  const priceId = planPriceMap[planId];
+  console.log(
+    "Creating checkout session for plan:",
+    planId,
+    "with price:",
+    planPriceMap[planId as keyof typeof planPriceMap],
+  );
+
+  const priceId = planPriceMap[planId as keyof typeof planPriceMap];
   if (!priceId) {
     console.error("Invalid planId:", planId);
     return new Response(JSON.stringify({ error: "Invalid plan ID" }), {
@@ -71,7 +79,7 @@ Deno.serve(async (req) => {
   const stripe = new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" });
 
   try {
-    const origin = "https://numspherebetter.onrender.com";
+    const origin = "https://magical-hawking7-mqqtn.view-3.tempo-dev.app";
 
     const checkoutSession = await stripe.checkout.sessions.create({
       mode: "subscription",
@@ -85,9 +93,20 @@ Deno.serve(async (req) => {
       success_url: `${origin}/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/plan-selection`,
       customer_email: userEmail,
-      metadata: { user_id: userId, plan_id: planId },
-      automatic_tax: { enabled: true },
+      metadata: {
+        user_id: userId,
+        plan_id: planId,
+        created_at: new Date().toISOString(),
+      },
+      automatic_tax: { enabled: false }, // Disable for testing
+      allow_promotion_codes: true,
+      billing_address_collection: "required",
+      phone_number_collection: {
+        enabled: true,
+      },
     });
+
+    console.log("Checkout session created successfully:", checkoutSession.id);
 
     return new Response(
       JSON.stringify({
