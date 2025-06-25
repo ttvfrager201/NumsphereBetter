@@ -351,11 +351,12 @@ const Home = () => {
                   "User"}
                 !
               </h1>
-              <p className="text-gray-600">Welcome back to your dashboard</p>
+              <p className="text-gray-600">
+                Welcome back to your NumSphere dashboard
+              </p>
             </div>
             <DashboardGrid isLoading={loading} />
             <TwilioNumberManager />
-            <TaskBoard isLoading={loading} />
           </div>
         </main>
       </div>

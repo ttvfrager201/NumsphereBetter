@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "../../../supabase/auth";
+import { supabase } from "../../../supabase/supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -61,6 +62,37 @@ export default function ForgotPasswordForm() {
     return () => clearInterval(interval);
   }, []);
 
+  const handlePasswordReset = async (email: string) => {
+    console.log("[ForgotPassword] Starting password reset process for:", email);
+
+    try {
+      // Directly call Supabase without rate limiting
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+
+      if (error) {
+        console.error("[ForgotPassword] Reset password error:", error);
+        throw error;
+      }
+
+      console.log("[ForgotPassword] Password reset email sent successfully");
+      setEmailSent(true);
+      toast({
+        title: "Reset link sent!",
+        description: "Please check your email for the password reset link.",
+      });
+    } catch (error: any) {
+      console.error("[ForgotPassword] Password reset error:", error);
+      setError(error.message || "Failed to send reset email");
+      toast({
+        title: "Failed to send reset email",
+        description: "Please check your email address and try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
@@ -73,7 +105,7 @@ export default function ForgotPasswordForm() {
       );
       const startTime = Date.now();
 
-      await resetPassword(email);
+      await handlePasswordReset(email);
 
       const endTime = Date.now();
       console.log(
