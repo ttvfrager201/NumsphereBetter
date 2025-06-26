@@ -101,7 +101,7 @@ export default function TwilioNumberManager() {
     }
   };
 
-  const fetchAvailableNumbers = async (isRefresh = false) => {
+  const fetchAvailableNumbers = async (isLoadMore = false) => {
     if (!user) {
       toast({
         title: "Authentication required",
@@ -111,11 +111,12 @@ export default function TwilioNumberManager() {
       return;
     }
 
-    if (isRefresh) {
+    if (isLoadMore) {
       setIsLoadingMore(true);
     } else {
       setIsLoadingAvailable(true);
       setCurrentPage(0);
+      // Always reset available numbers when starting a new search
       setAvailableNumbers([]);
     }
 
@@ -132,7 +133,7 @@ export default function TwilioNumberManager() {
             country: "US",
             areaCode: areaCode || undefined,
             limit: 30,
-            offset: isRefresh ? (currentPage + 1) * 30 : 0,
+            offset: isLoadMore ? (currentPage + 1) * 30 : 0,
           },
         },
       );
@@ -158,7 +159,7 @@ export default function TwilioNumberManager() {
             variant: "destructive",
           });
         }
-        if (!isRefresh) {
+        if (!isLoadMore) {
           setAvailableNumbers([]);
         }
       } else {
@@ -173,14 +174,16 @@ export default function TwilioNumberManager() {
           }),
         );
 
-        if (isRefresh) {
+        if (isLoadMore) {
           setAvailableNumbers((prev) => [...prev, ...numbersWithPricing]);
           setCurrentPage((prev) => prev + 1);
         } else {
+          // For new searches, always replace the entire array
           setAvailableNumbers(numbersWithPricing);
+          setCurrentPage(0);
         }
 
-        if (numbersWithPricing.length === 0 && areaCode && !isRefresh) {
+        if (numbersWithPricing.length === 0 && areaCode && !isLoadMore) {
           toast({
             title: "No Numbers Available",
             description: `No phone numbers available for area code ${areaCode}. Try a different area code or search without one.`,
@@ -203,11 +206,11 @@ export default function TwilioNumberManager() {
           variant: "destructive",
         });
       }
-      if (!isRefresh) {
+      if (!isLoadMore) {
         setAvailableNumbers([]);
       }
     } finally {
-      if (isRefresh) {
+      if (isLoadMore) {
         setIsLoadingMore(false);
       } else {
         setIsLoadingAvailable(false);
@@ -360,83 +363,92 @@ export default function TwilioNumberManager() {
                 </div>
 
                 {availableNumbers.length > 0 && (
-                  <div className="space-y-2 max-h-96 overflow-y-auto">
+                  <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <h4 className="font-medium text-gray-900">
                         Available Numbers ({availableNumbers.length})
                       </h4>
-                      {!areaCode && hasSearched && (
-                        <Button
-                          onClick={() => fetchAvailableNumbers(true)}
-                          disabled={isLoadingMore}
-                          size="sm"
-                          variant="outline"
-                          className="text-xs"
-                        >
-                          {isLoadingMore ? (
-                            <LoadingSpinner size="sm" className="mr-1" />
-                          ) : null}
-                          {isLoadingMore ? "Loading..." : "Refresh"}
-                        </Button>
-                      )}
                     </div>
                     <div className="text-sm text-gray-600 mb-3 p-2 bg-blue-50 rounded">
                       💡Press Select to Get your Phone Number!
                     </div>
-                    {availableNumbers.map((number, index) => (
-                      <div
-                        key={index}
-                        className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50"
-                      >
-                        <div className="flex-1">
-                          <div className="font-medium">
-                            {formatPhoneNumber(number.phone_number)}
-                          </div>
-                          <div className="text-sm text-gray-500 flex items-center gap-4">
-                            <span className="flex items-center gap-1">
-                              <MapPin className="h-3 w-3" />
-                              {number.locality}, {number.region}
-                            </span>
-                            <span className="font-medium text-green-600"></span>
-                            <div className="flex gap-1">
-                              {number.capabilities.voice && (
-                                <Badge
-                                  variant="secondary"
-                                  className="text-xs"
-                                ></Badge>
-                              )}
-                              {number.capabilities.SMS && (
-                                <Badge
-                                  variant="secondary"
-                                  className="text-xs"
-                                ></Badge>
-                              )}
-                              {number.capabilities.MMS && (
-                                <Badge
-                                  variant="secondary"
-                                  className="text-xs"
-                                ></Badge>
-                              )}
+                    <div
+                      className="max-h-96 overflow-y-auto space-y-2"
+                      onScroll={(e) => {
+                        const { scrollTop, scrollHeight, clientHeight } =
+                          e.currentTarget;
+                        if (
+                          scrollHeight - scrollTop === clientHeight &&
+                          !isLoadingMore &&
+                          !areaCode
+                        ) {
+                          fetchAvailableNumbers(true);
+                        }
+                      }}
+                    >
+                      {availableNumbers.map((number, index) => (
+                        <div
+                          key={index}
+                          className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50"
+                        >
+                          <div className="flex-1">
+                            <div className="font-medium">
+                              {formatPhoneNumber(number.phone_number)}
+                            </div>
+                            <div className="text-sm text-gray-500 flex items-center gap-4">
+                              <span className="flex items-center gap-1">
+                                <MapPin className="h-3 w-3" />
+                                {number.locality}, {number.region}
+                              </span>
+                              <span className="font-medium text-green-600"></span>
+                              <div className="flex gap-1">
+                                {number.capabilities.voice && (
+                                  <Badge
+                                    variant="secondary"
+                                    className="text-xs"
+                                  ></Badge>
+                                )}
+                                {number.capabilities.SMS && (
+                                  <Badge
+                                    variant="secondary"
+                                    className="text-xs"
+                                  ></Badge>
+                                )}
+                                {number.capabilities.MMS && (
+                                  <Badge
+                                    variant="secondary"
+                                    className="text-xs"
+                                  ></Badge>
+                                )}
+                              </div>
                             </div>
                           </div>
+                          <Button
+                            onClick={() => purchaseNumber(number.phone_number)}
+                            disabled={isPurchasing}
+                            size="sm"
+                            className="bg-blue-600 hover:bg-blue-700"
+                          >
+                            {isPurchasing &&
+                            selectedNumber === number.phone_number ? (
+                              <LoadingSpinner size="sm" className="mr-2" />
+                            ) : null}
+                            {isPurchasing &&
+                            selectedNumber === number.phone_number
+                              ? "Selecting ..."
+                              : "Select"}
+                          </Button>
                         </div>
-                        <Button
-                          onClick={() => purchaseNumber(number.phone_number)}
-                          disabled={isPurchasing}
-                          size="sm"
-                          className="bg-blue-600 hover:bg-blue-700"
-                        >
-                          {isPurchasing &&
-                          selectedNumber === number.phone_number ? (
-                            <LoadingSpinner size="sm" className="mr-2" />
-                          ) : null}
-                          {isPurchasing &&
-                          selectedNumber === number.phone_number
-                            ? "Selecting ..."
-                            : "Select"}
-                        </Button>
-                      </div>
-                    ))}
+                      ))}
+                      {isLoadingMore && (
+                        <div className="flex items-center justify-center py-4">
+                          <LoadingSpinner size="sm" className="mr-2" />
+                          <span className="text-sm text-gray-600">
+                            Loading more numbers...
+                          </span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
 

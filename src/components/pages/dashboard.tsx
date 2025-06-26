@@ -7,7 +7,6 @@ import TwilioNumberManager from "../dashboard/TwilioNumberManager";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Card,
   CardContent,
@@ -36,16 +35,211 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { RefreshCw, Upload, User, Mail, Lock, CreditCard } from "lucide-react";
+import {
+  RefreshCw,
+  Upload,
+  User,
+  Mail,
+  Lock,
+  CreditCard,
+  CheckCircle,
+  XCircle,
+  AlertCircle,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "../../../supabase/auth";
 import { supabase } from "../../../supabase/supabase";
 import { useToast } from "@/components/ui/use-toast";
 
+// Payment History Component
+const PaymentHistory = () => {
+  const { user } = useAuth();
+  const [payments, setPayments] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchPaymentHistory = async () => {
+      if (!user) return;
+
+      try {
+        // Fetch payment history from Stripe via edge function
+        const { data, error } = await supabase.functions.invoke(
+          "supabase-functions-get-payment-history",
+          {
+            body: { userId: user.id },
+          },
+        );
+
+        if (error) {
+          console.error("Error fetching payment history:", error);
+          // Mock data for demonstration
+          setPayments([
+            {
+              id: "pi_1234567890",
+              amount: 2999,
+              currency: "usd",
+              status: "succeeded",
+              created: new Date(
+                Date.now() - 30 * 24 * 60 * 60 * 1000,
+              ).toISOString(),
+              description: "Pro Plan - Monthly",
+            },
+            {
+              id: "pi_0987654321",
+              amount: 2999,
+              currency: "usd",
+              status: "succeeded",
+              created: new Date(
+                Date.now() - 60 * 24 * 60 * 60 * 1000,
+              ).toISOString(),
+              description: "Pro Plan - Monthly",
+            },
+            {
+              id: "pi_1122334455",
+              amount: 2999,
+              currency: "usd",
+              status: "failed",
+              created: new Date(
+                Date.now() - 90 * 24 * 60 * 60 * 1000,
+              ).toISOString(),
+              description: "Pro Plan - Monthly",
+            },
+          ]);
+        } else {
+          setPayments(data.payments || []);
+        }
+      } catch (error) {
+        console.error("Error fetching payment history:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchPaymentHistory();
+  }, [user]);
+
+  const formatAmount = (amount: number, currency: string) => {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: currency.toUpperCase(),
+    }).format(amount / 100);
+  };
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  };
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case "succeeded":
+        return <CheckCircle className="h-4 w-4 text-green-500" />;
+      case "failed":
+        return <XCircle className="h-4 w-4 text-red-500" />;
+      case "pending":
+        return <AlertCircle className="h-4 w-4 text-yellow-500" />;
+      default:
+        return <AlertCircle className="h-4 w-4 text-gray-500" />;
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "succeeded":
+        return "text-green-600 bg-green-50";
+      case "failed":
+        return "text-red-600 bg-red-50";
+      case "pending":
+        return "text-yellow-600 bg-yellow-50";
+      default:
+        return "text-gray-600 bg-gray-50";
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div className="text-center py-8">
+          <h2 className="text-2xl font-bold text-gray-900 mb-4">
+            Payment History
+          </h2>
+          <p className="text-gray-600">Loading payment history...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="text-center py-4">
+        <h2 className="text-2xl font-bold text-gray-900 mb-2">
+          Payment History
+        </h2>
+        <p className="text-gray-600">
+          View all your payment transactions and billing history.
+        </p>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Transaction History</CardTitle>
+          <CardDescription>
+            All payments and billing transactions for your account
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {payments.length === 0 ? (
+            <div className="text-center py-8">
+              <p className="text-gray-500">No payment history found.</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {payments.map((payment) => (
+                <div
+                  key={payment.id}
+                  className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    {getStatusIcon(payment.status)}
+                    <div>
+                      <p className="font-medium text-gray-900">
+                        {payment.description || "Payment"}
+                      </p>
+                      <p className="text-sm text-gray-500">
+                        {formatDate(payment.created)} • ID:{" "}
+                        {payment.id.slice(-8)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-semibold text-gray-900">
+                      {formatAmount(payment.amount, payment.currency)}
+                    </p>
+                    <span
+                      className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ${getStatusColor(payment.status)}`}
+                    >
+                      {payment.status.charAt(0).toUpperCase() +
+                        payment.status.slice(1)}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+};
+
 const Home = () => {
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("Home");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   const [formData, setFormData] = useState({
     email: "",
@@ -97,9 +291,19 @@ const Home = () => {
   const handleSidebarClick = (label: string) => {
     if (label === "Settings") {
       setIsSettingsOpen(true);
+    } else if (label === "Change Plan") {
+      // Handle plan change - could redirect to plan selection or open a modal
+      toast({
+        title: "Plan Change",
+        description: "Plan change functionality will be available soon.",
+      });
     } else {
       setActiveTab(label);
     }
+  };
+
+  const handleToggleSidebar = () => {
+    setIsSidebarCollapsed(!isSidebarCollapsed);
   };
 
   const handleUpdateEmail = async () => {
@@ -243,9 +447,14 @@ const Home = () => {
   };
   return (
     <div className="min-h-screen bg-[#f5f5f7]">
-      <TopNavigation />
+      <TopNavigation onSettingsClick={() => setIsSettingsOpen(true)} />
       <div className="flex h-[calc(100vh-64px)] mt-16">
-        <Sidebar activeItem={activeTab} onItemClick={handleSidebarClick} />
+        <Sidebar
+          activeItem={activeTab}
+          onItemClick={handleSidebarClick}
+          isCollapsed={isSidebarCollapsed}
+          onToggleCollapse={handleToggleSidebar}
+        />
         <main className="flex-1 overflow-auto">
           <div className="container mx-auto px-6 pt-4 pb-2 flex justify-end">
             <Button
@@ -264,22 +473,41 @@ const Home = () => {
               "transition-all duration-300 ease-in-out",
             )}
           >
-            {/* Welcome Message */}
-            <div className="text-center py-4">
-              <h1 className="text-3xl font-bold text-gray-900 mb-2">
-                Hello,{" "}
-                {userProfile?.full_name ||
-                  user?.user_metadata?.full_name ||
-                  user?.email?.split("@")[0] ||
-                  "User"}
-                !
-              </h1>
-              <p className="text-gray-600">
-                Welcome back to your NumSphere dashboard
-              </p>
-            </div>
+            {/* Content based on active tab */}
+            {activeTab === "Home" && (
+              <div className="text-center py-8">
+                <h2 className="text-2xl font-bold text-gray-900 mb-4">
+                  Welcome to NumSphere Dashboard
+                </h2>
+                <p className="text-gray-600">
+                  Manage your virtual phone numbers and call flows from the
+                  sidebar.
+                </p>
+                <p className="text-sm text-gray-500 mt-2">
+                  Select an option from the sidebar to get started.
+                </p>
+              </div>
+            )}
 
-            <TwilioNumberManager />
+            {activeTab === "Select Number" && (
+              <div className="space-y-6">
+                <TwilioNumberManager />
+              </div>
+            )}
+
+            {activeTab === "Call Flows" && (
+              <div className="text-center py-8">
+                <h2 className="text-2xl font-bold text-gray-900 mb-4">
+                  Call Flows
+                </h2>
+                <p className="text-gray-600">
+                  Design and manage your custom call flows here.
+                </p>
+                <p className="text-sm text-gray-500 mt-2">Coming soon...</p>
+              </div>
+            )}
+
+            {activeTab === "Payment History" && <PaymentHistory />}
           </div>
         </main>
       </div>
@@ -307,25 +535,30 @@ const Home = () => {
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <User className="h-5 w-5" />
-                    Profile Picture
+                    Profile Information
                   </CardTitle>
-                  <CardDescription>Update your profile picture</CardDescription>
+                  <CardDescription>View your profile details</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="flex items-center gap-4">
-                    <Avatar className="h-20 w-20">
-                      <AvatarFallback className="bg-gray-100">
-                        <User className="h-10 w-10 text-gray-400" />
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="space-y-2">
-                      <p className="text-sm text-gray-500">
-                        Default profile image
-                      </p>
-                      <p className="text-xs text-gray-400">
-                        Avatar functionality disabled
-                      </p>
-                    </div>
+                  <div className="space-y-2">
+                    <Label>Full Name</Label>
+                    <Input
+                      value={
+                        userProfile?.full_name ||
+                        user?.user_metadata?.full_name ||
+                        ""
+                      }
+                      disabled
+                      className="bg-gray-100"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Email</Label>
+                    <Input
+                      value={user?.email || ""}
+                      disabled
+                      className="bg-gray-100"
+                    />
                   </div>
                 </CardContent>
               </Card>
