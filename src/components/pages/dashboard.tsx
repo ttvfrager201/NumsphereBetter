@@ -284,27 +284,35 @@ const Home = () => {
         // Fetch subscription data
         const { data: subData, error: subError } = await supabase
           .from("user_subscriptions")
-          .select("*")
+          .select(
+            "plan_id, status, created_at, stripe_customer_id, stripe_subscription_id",
+          )
           .eq("user_id", user.id)
           .eq("status", "active")
           .single();
 
-        if (!subError) {
+        if (!subError && subData) {
           setSubscriptionData(subData);
+        } else if (subError && subError.code !== "PGRST116") {
+          console.error("Error fetching subscription:", subError);
         }
 
         // Fetch Stripe data for real subscription info
-        const { data: stripeResponse, error: stripeError } =
-          await supabase.functions.invoke(
-            "supabase-functions-get-payment-history",
-            {
-              body: { userId: user.id },
-            },
-          );
+        try {
+          const { data: stripeResponse, error: stripeError } =
+            await supabase.functions.invoke(
+              "supabase-functions-get-payment-history",
+              {
+                body: { userId: user.id },
+              },
+            );
 
-        if (!stripeError) {
-          setStripeData(stripeResponse);
-          setStripeSubscription(stripeResponse?.subscription);
+          if (!stripeError && stripeResponse) {
+            setStripeData(stripeResponse);
+            setStripeSubscription(stripeResponse?.subscription);
+          }
+        } catch (error) {
+          // Silently handle Stripe API errors
         }
       } catch (error) {
         // Silently handle errors to reduce console noise

@@ -59,7 +59,7 @@ const TopNavigation = ({
       try {
         const { data, error } = await supabase
           .from("users")
-          .select("full_name, email, created_at, last_sign_in_at")
+          .select("full_name, email, created_at")
           .eq("id", user.id)
           .single();
 
@@ -247,15 +247,16 @@ const TopNavigation = ({
                 <div className="flex justify-between">
                   <span className="text-gray-600">Last login:</span>
                   <span className="font-medium">
-                    {userProfile?.last_sign_in_at
-                      ? new Date(
-                          userProfile.last_sign_in_at,
-                        ).toLocaleDateString("en-US", {
-                          year: "numeric",
-                          month: "short",
-                          day: "numeric",
-                        })
-                      : "Unknown"}
+                    {user?.last_sign_in_at
+                      ? new Date(user.last_sign_in_at).toLocaleDateString(
+                          "en-US",
+                          {
+                            year: "numeric",
+                            month: "short",
+                            day: "numeric",
+                          },
+                        )
+                      : "Recent"}
                   </span>
                 </div>
               </div>

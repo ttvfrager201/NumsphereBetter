@@ -87,23 +87,18 @@ function PrivateRoute({
   }
 
   if (!user) {
-    console.log("PrivateRoute: No user, redirecting to home");
+    // No user, redirecting to home
     return <Navigate to="/" replace />;
   }
 
   // If payment is required but user hasn't completed payment, redirect to plan selection
   // But only redirect if we're not already on the plan selection page to avoid loops
   if (requiresPayment && !hasCompletedPayment) {
-    console.log(
-      "PrivateRoute: Payment required but not completed, redirecting to plan selection",
-    );
+    // Payment required but not completed, redirecting to plan selection
     return <Navigate to="/plan-selection" replace />;
   }
 
-  console.log("PrivateRoute: Access granted", {
-    requiresPayment,
-    hasCompletedPayment,
-  });
+  // Access granted
   return <>{children}</>;
 }
 

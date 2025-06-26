@@ -54,14 +54,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const now = Date.now();
       if (now - timestamp < 300000) {
         // 5 minutes cache to prevent tab switching redirects
-        console.log("Using cached payment status:", status);
+        // Using cached payment status
         setHasCompletedPayment(status);
         return status;
       }
     }
 
     try {
-      console.log("Checking payment status for user:", user.id);
+      // Checking payment status
 
       // Check both user payment status and active subscription
       const [userResult, subscriptionResult] = await Promise.all([
@@ -103,15 +103,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Otherwise, if they have payment record OR active subscription, they're good
       const completed = (hasPayment || hasActiveSubscription) && !isCanceled;
 
-      console.log("Payment status check result:", {
-        userId: user.id,
-        hasPayment,
-        hasActiveSubscription,
-        isCanceled,
-        completed,
-        userData,
-        subscriptionData,
-      });
+      // Payment status check completed
 
       // Cache the result
       sessionStorage.setItem(
@@ -130,7 +122,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // On error, check if we have any cached status to fall back to
       if (cached) {
         const { status } = JSON.parse(cached);
-        console.log("Using cached payment status due to error:", status);
+        // Using cached payment status due to error
         setHasCompletedPayment(status);
         return status;
       }
@@ -143,7 +135,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     // Check active sessions and sets the user
     supabase.auth.getSession().then(async ({ data: { session } }) => {
-      console.log("Initial session check:", session?.user?.id);
+      // Initial session check
       setUser(session?.user ?? null);
       if (session?.user) {
         // Add a small delay to ensure database is ready
@@ -160,7 +152,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log("Auth state change:", event, session?.user?.id);
+      // Auth state change
 
       // Only check payment status on actual auth changes, not on tab focus
       if (

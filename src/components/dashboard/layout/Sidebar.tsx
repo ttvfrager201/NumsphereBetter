@@ -86,12 +86,16 @@ const Sidebar = ({
         setUserProfile(userData);
 
         // Fetch subscription info
-        const { data: subData } = await supabase
+        const { data: subData, error: subError } = await supabase
           .from("user_subscriptions")
-          .select("status, plan_id, current_period_end")
+          .select("status, plan_id, created_at")
           .eq("user_id", user.id)
           .eq("status", "active")
           .single();
+
+        if (subError && subError.code !== "PGRST116") {
+          console.error("Error fetching subscription:", subError);
+        }
 
         if (subData) {
           // Mock usage data - in real app, this would come from actual usage tracking
