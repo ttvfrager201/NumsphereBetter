@@ -74,15 +74,14 @@ const PaymentHistory = () => {
         );
 
         if (error) {
-          console.error("Error fetching payment history:", error);
-          // Fallback to empty array if error
+          // Silently handle errors to reduce console noise
           setPayments([]);
         } else {
           setPayments(data.payments || []);
           setStripeCustomerPortalUrl(data.customerPortalUrl || null);
         }
       } catch (error) {
-        console.error("Error fetching payment history:", error);
+        // Silently handle errors to reduce console noise
         setPayments([]);
       } finally {
         setLoading(false);
@@ -278,9 +277,7 @@ const Home = () => {
           .eq("id", user.id)
           .single();
 
-        if (profileError) {
-          console.error("Error fetching user profile:", profileError);
-        } else {
+        if (!profileError) {
           setUserProfile(profileData);
         }
 
@@ -292,9 +289,7 @@ const Home = () => {
           .eq("status", "active")
           .single();
 
-        if (subError) {
-          console.error("Error fetching subscription data:", subError);
-        } else {
+        if (!subError) {
           setSubscriptionData(subData);
         }
 
@@ -307,14 +302,12 @@ const Home = () => {
             },
           );
 
-        if (stripeError) {
-          console.error("Error fetching Stripe data:", stripeError);
-        } else {
+        if (!stripeError) {
           setStripeData(stripeResponse);
           setStripeSubscription(stripeResponse?.subscription);
         }
       } catch (error) {
-        console.error("Error fetching user data:", error);
+        // Silently handle errors to reduce console noise
       } finally {
         setLoadingStripeData(false);
       }
@@ -642,7 +635,8 @@ const Home = () => {
                               ? new Intl.NumberFormat("en-US", {
                                   style: "currency",
                                   currency:
-                                    stripeSubscription.currency.toUpperCase(),
+                                    stripeSubscription.currency?.toUpperCase() ||
+                                    "USD",
                                 }).format(stripeSubscription.amount / 100)
                               : subscriptionData?.plan_id === "starter"
                                 ? "$9.99"

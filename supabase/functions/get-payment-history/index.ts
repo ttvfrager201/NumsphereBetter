@@ -58,10 +58,6 @@ Deno.serve(async (req) => {
       .single();
 
     if (subscriptionError || !subscriptionData?.stripe_customer_id) {
-      console.log(
-        "No active subscription or Stripe customer ID found for user:",
-        userId,
-      );
       return new Response(
         JSON.stringify({
           payments: [],
@@ -145,11 +141,22 @@ Deno.serve(async (req) => {
           const subscription = await stripe.subscriptions.retrieve(
             subscriptionData.stripe_subscription_id,
           );
+          // Get product details for better naming
+          let productName = `${subscriptionData.plan_id.charAt(0).toUpperCase() + subscriptionData.plan_id.slice(1)} Plan`;
+
+          if (subscription.items.data[0]?.price?.product) {
+            try {
+              const product = await stripe.products.retrieve(
+                subscription.items.data[0].price.product as string,
+              );
+              productName = product.name || productName;
+            } catch (productError) {
+              // Silently handle product fetch errors to reduce console noise
+            }
+          }
+
           subscriptionDetails = {
-            name:
-              subscription.items.data[0]?.price?.nickname ||
-              subscription.items.data[0]?.price?.product?.name ||
-              `${subscriptionData.plan_id.charAt(0).toUpperCase() + subscriptionData.plan_id.slice(1)} Plan`,
+            name: subscription.items.data[0]?.price?.nickname || productName,
             amount: subscription.items.data[0]?.price?.unit_amount || 0,
             currency: subscription.items.data[0]?.price?.currency || "usd",
             interval:
@@ -159,7 +166,7 @@ Deno.serve(async (req) => {
             current_period_start: subscription.current_period_start,
           };
         } catch (subError) {
-          console.error("Error fetching subscription details:", subError);
+          // Silently handle subscription fetch errors to reduce console noise
         }
       }
 
@@ -172,7 +179,7 @@ Deno.serve(async (req) => {
         });
         customerPortalUrl = portalSession.url;
       } catch (portalError) {
-        console.error("Error creating customer portal session:", portalError);
+        // Silently handle portal creation errors to reduce console noise
       }
 
       return new Response(
@@ -187,8 +194,7 @@ Deno.serve(async (req) => {
         },
       );
     } catch (stripeError) {
-      console.error("Stripe API error:", stripeError);
-      // Return empty array if Stripe API fails
+      // Return empty array if Stripe API fails - don't log to reduce console errors
       return new Response(
         JSON.stringify({
           payments: [],

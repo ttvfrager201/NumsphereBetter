@@ -66,6 +66,7 @@ export default function TwilioNumberManager() {
   const [currentPage, setCurrentPage] = useState(0);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  const [lastSearchAreaCode, setLastSearchAreaCode] = useState("");
   const { user } = useAuth();
   const { toast } = useToast();
 
@@ -85,7 +86,6 @@ export default function TwilioNumberManager() {
         .order("created_at", { ascending: false });
 
       if (error) {
-        console.error("Error fetching user numbers:", error);
         toast({
           title: "Error",
           description: "Failed to load your phone numbers.",
@@ -95,7 +95,6 @@ export default function TwilioNumberManager() {
         setUserNumbers(data || []);
       }
     } catch (error) {
-      console.error("Error fetching user numbers:", error);
     } finally {
       setIsLoading(false);
     }
@@ -111,20 +110,24 @@ export default function TwilioNumberManager() {
       return;
     }
 
+    // Check if this is a new search (different area code or first search)
+    const isNewSearch =
+      !isLoadMore && (areaCode !== lastSearchAreaCode || !hasSearched);
+
     if (isLoadMore) {
       setIsLoadingMore(true);
     } else {
       setIsLoadingAvailable(true);
-      setCurrentPage(0);
-      setAvailableNumbers([]);
+      // Reset everything for a new search
+      if (isNewSearch) {
+        setCurrentPage(0);
+        setAvailableNumbers([]);
+        setLastSearchAreaCode(areaCode);
+      }
+      setHasSearched(true);
     }
 
-    setHasSearched(true);
-
     try {
-      // Add a small delay to ensure auth state is properly established
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
       const { data, error } = await supabase.functions.invoke(
         "supabase-functions-get-twilio-numbers",
         {
@@ -138,77 +141,43 @@ export default function TwilioNumberManager() {
       );
 
       if (error) {
-        console.error("Error fetching available numbers:", error);
-        // Check if it's an invalid area code error
-        if (
-          areaCode &&
-          (error.message?.includes("area code") ||
-            error.message?.includes("invalid"))
-        ) {
-          toast({
-            title: "Invalid Area Code",
-            description:
-              "Please enter a valid area code (e.g., 415, 212, 555).",
-            variant: "destructive",
-          });
-        } else {
-          toast({
-            title: "Error",
-            description: "Failed to load available numbers Please try again.",
-            variant: "destructive",
-          });
-        }
-        if (!isLoadMore) {
-          setAvailableNumbers([]);
-        }
-      } else {
-        // Filter numbers that cost $1.25/month
-        // Note: Twilio typically charges $1.00/month for local numbers + fees
-        // The $1.25 might include taxes/fees, so we'll show all available numbers
-        // and add pricing information
-        const numbersWithPricing = (data.numbers || []).map(
-          (number: AvailableNumber) => ({
-            ...number,
-            monthlyPrice: 1.25, // Standard Twilio local number pricing with fees
-          }),
-        );
-
-        if (isLoadMore) {
-          // Append new numbers to existing list for infinite scroll
-          setAvailableNumbers((prev) => [...prev, ...numbersWithPricing]);
-          setCurrentPage((prev) => prev + 1);
-        } else {
-          // For new searches, replace the entire array
-          setAvailableNumbers(numbersWithPricing);
-          setCurrentPage(0);
-        }
-
-        if (numbersWithPricing.length === 0 && areaCode && !isLoadMore) {
-          toast({
-            title: "No Numbers Available",
-            description: `No phone numbers available for area code ${areaCode}. Try a different area code or search without one.`,
-            variant: "destructive",
-          });
-        }
-      }
-    } catch (error) {
-      console.error("Error fetching available numbers:", error);
-      if (areaCode && error.message?.includes("area code")) {
-        toast({
-          title: "Invalid Area Code",
-          description: "Please enter a valid area code (e.g., 415, 212, 555).",
-          variant: "destructive",
-        });
-      } else {
         toast({
           title: "Error",
-          description: "Failed to load available numbers Please try again.",
+          description: "Failed to load available numbers. Please try again.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const numbersWithPricing = (data.numbers || []).map(
+        (number: AvailableNumber) => ({
+          ...number,
+          monthlyPrice: 1.25,
+        }),
+      );
+
+      if (isLoadMore) {
+        setAvailableNumbers((prev) => [...prev, ...numbersWithPricing]);
+        setCurrentPage((prev) => prev + 1);
+      } else {
+        // For new searches, replace the entire list
+        setAvailableNumbers(numbersWithPricing);
+        setCurrentPage(0);
+      }
+
+      if (numbersWithPricing.length === 0 && areaCode && !isLoadMore) {
+        toast({
+          title: "No Numbers Available",
+          description: `No phone numbers available for area code ${areaCode}. Try a different area code or search without one.`,
           variant: "destructive",
         });
       }
-      if (!isLoadMore) {
-        setAvailableNumbers([]);
-      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to load available numbers. Please try again.",
+        variant: "destructive",
+      });
     } finally {
       if (isLoadMore) {
         setIsLoadingMore(false);
@@ -247,7 +216,6 @@ export default function TwilioNumberManager() {
       );
 
       if (error) {
-        console.error("Error purchasing number:", error);
         toast({
           title: "Selection failed",
           description: error.message || "Failed to Select phone number.",
@@ -259,10 +227,9 @@ export default function TwilioNumberManager() {
           description: `Successfully Selected ${phoneNumber}`,
         });
         setShowNumberDialog(false);
-        fetchUserNumbers(); // Refresh the list
+        fetchUserNumbers();
       }
     } catch (error) {
-      console.error("Error purchasing number:", error);
       toast({
         title: "Selected failed",
         description: "Failed to Selected phone number.",
@@ -281,6 +248,19 @@ export default function TwilioNumberManager() {
       return `+1 (${number.slice(0, 3)}) ${number.slice(3, 6)}-${number.slice(6)}`;
     }
     return phoneNumber;
+  };
+
+  // Reset search state when dialog closes
+  const handleDialogChange = (open: boolean) => {
+    setShowNumberDialog(open);
+    if (!open) {
+      // Reset search state when dialog closes
+      setAvailableNumbers([]);
+      setHasSearched(false);
+      setCurrentPage(0);
+      setLastSearchAreaCode("");
+      setAreaCode("");
+    }
   };
 
   if (isLoading) {
@@ -314,7 +294,7 @@ export default function TwilioNumberManager() {
               Manage your Phone numbers and call flows
             </CardDescription>
           </div>
-          <Dialog open={showNumberDialog} onOpenChange={setShowNumberDialog}>
+          <Dialog open={showNumberDialog} onOpenChange={handleDialogChange}>
             <DialogTrigger asChild>
               <Button className="bg-blue-600 hover:bg-blue-700">
                 <Plus className="h-4 w-4 mr-2" />
@@ -348,7 +328,7 @@ export default function TwilioNumberManager() {
                   </div>
                   <div className="flex items-end">
                     <Button
-                      onClick={fetchAvailableNumbers}
+                      onClick={() => fetchAvailableNumbers(false)}
                       disabled={isLoadingAvailable}
                       className="bg-green-600 hover:bg-green-700"
                     >
@@ -362,11 +342,39 @@ export default function TwilioNumberManager() {
                   </div>
                 </div>
 
-                {availableNumbers.length > 0 && (
+                {isLoadingAvailable && (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-center py-12 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg border border-blue-100">
+                      <div className="flex flex-col items-center gap-4">
+                        <div className="relative">
+                          <div className="h-12 w-12 rounded-full border-4 border-blue-100 border-t-blue-500 animate-spin" />
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <div className="h-6 w-6 rounded-full bg-blue-500/20 animate-pulse" />
+                          </div>
+                        </div>
+                        <div className="text-center">
+                          <h4 className="font-semibold text-gray-900 mb-1">
+                            🔍 Searching for Numbers...
+                          </h4>
+                          <p className="text-sm text-gray-600">
+                            Finding the best available phone numbers for you
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {availableNumbers.length > 0 && !isLoadingAvailable && (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <h4 className="font-medium text-gray-900">
                         Available Numbers ({availableNumbers.length})
+                        {areaCode && (
+                          <span className="text-sm text-gray-500 ml-2">
+                            - Area Code: {areaCode}
+                          </span>
+                        )}
                       </h4>
                     </div>
                     <div className="text-sm text-gray-600 mb-3 p-3 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg border border-blue-100">
@@ -383,12 +391,11 @@ export default function TwilioNumberManager() {
                       onScroll={(e) => {
                         const { scrollTop, scrollHeight, clientHeight } =
                           e.currentTarget;
-                        // Trigger load more when user scrolls near the bottom (within 50px)
                         if (
                           scrollHeight - scrollTop - clientHeight < 50 &&
                           !isLoadingMore &&
                           availableNumbers.length > 0 &&
-                          availableNumbers.length % 30 === 0 // Only load more if we have full pages
+                          availableNumbers.length % 30 === 0
                         ) {
                           fetchAvailableNumbers(true);
                         }

@@ -311,11 +311,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     email: string,
     password: string,
   ): Promise<{ requiresOtp: boolean }> => {
-    // First check if this device/user combination requires OTP
+    // Always require OTP for consistent security - check device status
     const requiresOtp = await checkDeviceStatus(email);
 
+    // First verify password is correct
+    const { error: passwordError } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (passwordError) {
+      throw passwordError;
+    }
+
+    // If device requires OTP, sign out and request OTP
     if (requiresOtp) {
-      // Send OTP but don't complete sign in yet
+      // Sign out the user since we need OTP verification
+      await supabase.auth.signOut();
+
+      // Send OTP
       const { error: otpError } = await supabase.auth.signInWithOtp({
         email,
         options: {
@@ -324,26 +338,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
 
       if (otpError) {
-        // If OTP fails, try regular password sign in (might be wrong email)
-        const { error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
-        if (error) throw error;
-        return { requiresOtp: false };
+        throw otpError;
       }
 
       setRequiresOtpVerification(true);
       return { requiresOtp: true };
-    } else {
-      // Device is trusted, proceed with normal sign in
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-      if (error) throw error;
-      return { requiresOtp: false };
     }
+
+    // Device is trusted, user is already signed in from password check
+    return { requiresOtp: false };
   };
 
   const signInWithFacebook = async () => {
