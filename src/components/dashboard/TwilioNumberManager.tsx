@@ -63,6 +63,9 @@ export default function TwilioNumberManager() {
   const [showNumberDialog, setShowNumberDialog] = useState(false);
   const [areaCode, setAreaCode] = useState("");
   const [selectedNumber, setSelectedNumber] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(0);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
   const { user } = useAuth();
   const { toast } = useToast();
 
@@ -98,26 +101,66 @@ export default function TwilioNumberManager() {
     }
   };
 
-  const fetchAvailableNumbers = async () => {
-    setIsLoadingAvailable(true);
+  const fetchAvailableNumbers = async (isRefresh = false) => {
+    if (!user) {
+      toast({
+        title: "Authentication required",
+        description: "Please sign in to search for numbers.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (isRefresh) {
+      setIsLoadingMore(true);
+    } else {
+      setIsLoadingAvailable(true);
+      setCurrentPage(0);
+      setAvailableNumbers([]);
+    }
+
+    setHasSearched(true);
+
     try {
+      // Add a small delay to ensure auth state is properly established
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
       const { data, error } = await supabase.functions.invoke(
         "supabase-functions-get-twilio-numbers",
         {
           body: {
             country: "US",
             areaCode: areaCode || undefined,
+            limit: 30,
+            offset: isRefresh ? (currentPage + 1) * 30 : 0,
           },
         },
       );
 
       if (error) {
         console.error("Error fetching available numbers:", error);
-        toast({
-          title: "Error",
-          description: "Failed to load available numbers.",
-          variant: "destructive",
-        });
+        // Check if it's an invalid area code error
+        if (
+          areaCode &&
+          (error.message?.includes("area code") ||
+            error.message?.includes("invalid"))
+        ) {
+          toast({
+            title: "Invalid Area Code",
+            description:
+              "Please enter a valid area code (e.g., 415, 212, 555).",
+            variant: "destructive",
+          });
+        } else {
+          toast({
+            title: "Error",
+            description: "Failed to load available numbers Please try again.",
+            variant: "destructive",
+          });
+        }
+        if (!isRefresh) {
+          setAvailableNumbers([]);
+        }
       } else {
         // Filter numbers that cost $1.25/month
         // Note: Twilio typically charges $1.00/month for local numbers + fees
@@ -129,17 +172,46 @@ export default function TwilioNumberManager() {
             monthlyPrice: 1.25, // Standard Twilio local number pricing with fees
           }),
         );
-        setAvailableNumbers(numbersWithPricing);
+
+        if (isRefresh) {
+          setAvailableNumbers((prev) => [...prev, ...numbersWithPricing]);
+          setCurrentPage((prev) => prev + 1);
+        } else {
+          setAvailableNumbers(numbersWithPricing);
+        }
+
+        if (numbersWithPricing.length === 0 && areaCode && !isRefresh) {
+          toast({
+            title: "No Numbers Available",
+            description: `No phone numbers available for area code ${areaCode}. Try a different area code or search without one.`,
+            variant: "destructive",
+          });
+        }
       }
     } catch (error) {
       console.error("Error fetching available numbers:", error);
-      toast({
-        title: "Error",
-        description: "Failed to load available numbers.",
-        variant: "destructive",
-      });
+      if (areaCode && error.message?.includes("area code")) {
+        toast({
+          title: "Invalid Area Code",
+          description: "Please enter a valid area code (e.g., 415, 212, 555).",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: "Failed to load available numbers Please try again.",
+          variant: "destructive",
+        });
+      }
+      if (!isRefresh) {
+        setAvailableNumbers([]);
+      }
     } finally {
-      setIsLoadingAvailable(false);
+      if (isRefresh) {
+        setIsLoadingMore(false);
+      } else {
+        setIsLoadingAvailable(false);
+      }
     }
   };
 
@@ -174,14 +246,14 @@ export default function TwilioNumberManager() {
       if (error) {
         console.error("Error purchasing number:", error);
         toast({
-          title: "Purchase failed",
-          description: error.message || "Failed to purchase phone number.",
+          title: "Selection failed",
+          description: error.message || "Failed to Select phone number.",
           variant: "destructive",
         });
       } else {
         toast({
-          title: "Number purchased!",
-          description: `Successfully purchased ${phoneNumber}`,
+          title: "Number Selected",
+          description: `Successfully Selected ${phoneNumber}`,
         });
         setShowNumberDialog(false);
         fetchUserNumbers(); // Refresh the list
@@ -189,8 +261,8 @@ export default function TwilioNumberManager() {
     } catch (error) {
       console.error("Error purchasing number:", error);
       toast({
-        title: "Purchase failed",
-        description: "Failed to purchase phone number.",
+        title: "Selected failed",
+        description: "Failed to Selected phone number.",
         variant: "destructive",
       });
     } finally {
@@ -236,7 +308,7 @@ export default function TwilioNumberManager() {
               Phone Numbers
             </CardTitle>
             <CardDescription>
-              Manage your Twilio phone numbers ($1.25/month each) and call flows
+              Manage your Phone numbers and call flows
             </CardDescription>
           </div>
           <Dialog open={showNumberDialog} onOpenChange={setShowNumberDialog}>
@@ -248,7 +320,7 @@ export default function TwilioNumberManager() {
             </DialogTrigger>
             <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
               <DialogHeader>
-                <DialogTitle>Purchase Phone Number</DialogTitle>
+                <DialogTitle>Select Your Phone Number</DialogTitle>
                 <DialogDescription>
                   Select a phone number from available options
                 </DialogDescription>
@@ -264,6 +336,11 @@ export default function TwilioNumberManager() {
                       value={areaCode}
                       onChange={(e) => setAreaCode(e.target.value)}
                       maxLength={3}
+                      onKeyPress={(e) => {
+                        if (e.key === "Enter") {
+                          fetchAvailableNumbers();
+                        }
+                      }}
                     />
                   </div>
                   <div className="flex items-end">
@@ -284,13 +361,27 @@ export default function TwilioNumberManager() {
 
                 {availableNumbers.length > 0 && (
                   <div className="space-y-2 max-h-96 overflow-y-auto">
-                    <h4 className="font-medium text-gray-900">
-                      Available Numbers - $1.25/month ({availableNumbers.length}
-                      )
-                    </h4>
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-medium text-gray-900">
+                        Available Numbers ({availableNumbers.length})
+                      </h4>
+                      {!areaCode && hasSearched && (
+                        <Button
+                          onClick={() => fetchAvailableNumbers(true)}
+                          disabled={isLoadingMore}
+                          size="sm"
+                          variant="outline"
+                          className="text-xs"
+                        >
+                          {isLoadingMore ? (
+                            <LoadingSpinner size="sm" className="mr-1" />
+                          ) : null}
+                          {isLoadingMore ? "Loading..." : "Refresh"}
+                        </Button>
+                      )}
+                    </div>
                     <div className="text-sm text-gray-600 mb-3 p-2 bg-blue-50 rounded">
-                      💡 All Twilio local numbers cost $1.25/month (includes
-                      base rate + fees)
+                      💡Press Select to Get your Phone Number!
                     </div>
                     {availableNumbers.map((number, index) => (
                       <div
@@ -306,24 +397,25 @@ export default function TwilioNumberManager() {
                               <MapPin className="h-3 w-3" />
                               {number.locality}, {number.region}
                             </span>
-                            <span className="font-medium text-green-600">
-                              $1.25/month
-                            </span>
+                            <span className="font-medium text-green-600"></span>
                             <div className="flex gap-1">
                               {number.capabilities.voice && (
-                                <Badge variant="secondary" className="text-xs">
-                                  Voice
-                                </Badge>
+                                <Badge
+                                  variant="secondary"
+                                  className="text-xs"
+                                ></Badge>
                               )}
                               {number.capabilities.SMS && (
-                                <Badge variant="secondary" className="text-xs">
-                                  SMS
-                                </Badge>
+                                <Badge
+                                  variant="secondary"
+                                  className="text-xs"
+                                ></Badge>
                               )}
                               {number.capabilities.MMS && (
-                                <Badge variant="secondary" className="text-xs">
-                                  MMS
-                                </Badge>
+                                <Badge
+                                  variant="secondary"
+                                  className="text-xs"
+                                ></Badge>
                               )}
                             </div>
                           </div>
@@ -340,19 +432,30 @@ export default function TwilioNumberManager() {
                           ) : null}
                           {isPurchasing &&
                           selectedNumber === number.phone_number
-                            ? "Purchasing..."
-                            : "Purchase"}
+                            ? "Selecting ..."
+                            : "Select"}
                         </Button>
                       </div>
                     ))}
                   </div>
                 )}
 
-                {availableNumbers.length === 0 && !isLoadingAvailable && (
-                  <div className="text-center py-8 text-gray-500">
-                    Click "Search" to find available phone numbers
-                  </div>
-                )}
+                {availableNumbers.length === 0 &&
+                  !isLoadingAvailable &&
+                  !hasSearched && (
+                    <div className="text-center py-8 text-gray-500">
+                      Click "Search" to find available phone numbers
+                    </div>
+                  )}
+
+                {availableNumbers.length === 0 &&
+                  !isLoadingAvailable &&
+                  hasSearched && (
+                    <div className="text-center py-8 text-gray-500">
+                      No numbers found. Try a different area code or search
+                      without one.
+                    </div>
+                  )}
               </div>
             </DialogContent>
           </Dialog>
@@ -366,7 +469,7 @@ export default function TwilioNumberManager() {
               No Phone Numbers
             </h3>
             <p className="text-gray-500 mb-4">
-              Purchase your first phone number to start making calls
+              Select your first phone number to start making calls
             </p>
           </div>
         ) : (

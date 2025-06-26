@@ -87,7 +87,11 @@ const plans = [
   },
 ];
 
-export default function PlanSelection() {
+export default function PlanSelection({
+  hasActiveSubscription = false,
+}: {
+  hasActiveSubscription?: boolean;
+}) {
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
@@ -107,6 +111,79 @@ export default function PlanSelection() {
       });
     }
   };
+
+  // If user has active subscription, show subscription status instead of plans
+  if (hasActiveSubscription) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50/30">
+        {/* Header */}
+        <header className="bg-white border-b border-gray-200">
+          <div className="max-w-7xl mx-auto px-6 py-4">
+            <div className="flex items-center justify-between">
+              <Link
+                to="/"
+                className="flex items-center space-x-3 hover:opacity-80 transition-opacity"
+              >
+                <div className="inline-flex items-center justify-center w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl">
+                  <Phone className="h-6 w-6 text-white" />
+                </div>
+                <h1 className="text-2xl font-bold text-gray-900">NumSphere</h1>
+              </Link>
+              <DropdownMenu>
+                <DropdownMenuTrigger className="flex items-center space-x-2 text-sm text-gray-600 hover:text-gray-800 transition-colors cursor-pointer">
+                  <span>
+                    Welcome, {user?.user_metadata?.full_name || user?.email}
+                  </span>
+                  <ChevronDown className="h-4 w-4" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem
+                    onClick={handleSignOut}
+                    className="text-red-600 hover:text-red-700 hover:bg-red-50 cursor-pointer"
+                  >
+                    <LogOut className="h-4 w-4 mr-2" />
+                    Sign Out
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
+        </header>
+
+        {/* Main Content */}
+        <main className="max-w-4xl mx-auto px-6 py-12">
+          <div className="text-center">
+            <div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-green-500 to-green-600 rounded-full mb-6">
+              <Check className="h-10 w-10 text-white" />
+            </div>
+            <h2 className="text-4xl md:text-5xl font-bold tracking-tight mb-4 bg-gradient-to-r from-gray-900 to-blue-900 bg-clip-text text-transparent">
+              You're Already Subscribed!
+            </h2>
+            <p className="text-xl text-gray-600 max-w-2xl mx-auto mb-8">
+              Your payment has been successful and your subscription is active.
+              You can access all the features from your dashboard.
+            </p>
+
+            <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
+              <Button
+                onClick={() => navigate("/dashboard")}
+                className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-8 py-3 rounded-xl font-semibold transition-all duration-200 transform hover:scale-[1.02] shadow-lg"
+              >
+                Go to Dashboard
+              </Button>
+              <Button
+                onClick={() => navigate("/")}
+                variant="outline"
+                className="px-8 py-3 rounded-xl font-semibold border-2 hover:bg-gray-50"
+              >
+                Go to Home
+              </Button>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   const handlePlanSelect = async (planId: string) => {
     if (!user) {

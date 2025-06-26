@@ -163,8 +163,20 @@ export default function Success() {
   }, [sessionId, user, checkPaymentStatus]);
 
   const fetchAvailableNumbers = async () => {
+    if (!user) {
+      toast({
+        title: "Authentication required",
+        description: "Please sign in to search for numbers.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsLoadingNumbers(true);
     try {
+      // Add a small delay to ensure auth state is properly established
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
       const { data, error } = await supabase.functions.invoke(
         "supabase-functions-get-twilio-numbers",
         {
@@ -177,21 +189,52 @@ export default function Success() {
 
       if (error) {
         console.error("Error fetching available numbers:", error);
+        // Check if it's an invalid area code error
+        if (
+          areaCode &&
+          (error.message?.includes("area code") ||
+            error.message?.includes("invalid"))
+        ) {
+          toast({
+            title: "Invalid Area Code",
+            description:
+              "Please enter a valid area code (e.g., 415, 212, 555).",
+            variant: "destructive",
+          });
+        } else {
+          toast({
+            title: "Error",
+            description: "Failed to load available numbers.",
+            variant: "destructive",
+          });
+        }
+        setAvailableNumbers([]);
+      } else {
+        setAvailableNumbers(data.numbers || []);
+        if (data.numbers?.length === 0 && areaCode) {
+          toast({
+            title: "No Numbers Available",
+            description: `No phone numbers available for area code ${areaCode}. Try a different area code or search without one.`,
+            variant: "destructive",
+          });
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching available numbers:", error);
+      if (areaCode && error.message?.includes("area code")) {
+        toast({
+          title: "Invalid Area Code",
+          description: "Please enter a valid area code (e.g., 415, 212, 555).",
+          variant: "destructive",
+        });
+      } else {
         toast({
           title: "Error",
           description: "Failed to load available numbers.",
           variant: "destructive",
         });
-      } else {
-        setAvailableNumbers(data.numbers || []);
       }
-    } catch (error) {
-      console.error("Error fetching available numbers:", error);
-      toast({
-        title: "Error",
-        description: "Failed to load available numbers.",
-        variant: "destructive",
-      });
+      setAvailableNumbers([]);
     } finally {
       setIsLoadingNumbers(false);
     }
@@ -267,7 +310,7 @@ export default function Success() {
 
   // Auto-fetch numbers when dialog opens
   useEffect(() => {
-    if (showNumberSelection && availableNumbers.length === 0) {
+    if (showNumberSelection) {
       fetchAvailableNumbers();
     }
   }, [showNumberSelection]);
@@ -388,57 +431,68 @@ export default function Success() {
               </div>
             </div>
 
-            {availableNumbers.length > 0 && (
+            {(availableNumbers.length > 0 || isLoadingNumbers) && (
               <div className="space-y-2 max-h-96 overflow-y-auto">
-                <h4 className="font-medium text-gray-900">
-                  Available Numbers ({availableNumbers.length})
-                </h4>
-                {availableNumbers.map((number, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50"
-                  >
-                    <div className="flex-1">
-                      <div className="font-medium">
-                        {formatPhoneNumber(number.phone_number)}
-                      </div>
-                      <div className="text-sm text-gray-500 flex items-center gap-4">
-                        <span className="flex items-center gap-1">
-                          <MapPin className="h-3 w-3" />
-                          {number.locality}, {number.region}
-                        </span>
-                        <div className="flex gap-1">
-                          {number.capabilities.voice && (
-                            <Badge variant="secondary" className="text-xs">
-                              Voice
-                            </Badge>
-                          )}
-                          {number.capabilities.SMS && (
-                            <Badge variant="secondary" className="text-xs">
-                              SMS
-                            </Badge>
-                          )}
-                          {number.capabilities.MMS && (
-                            <Badge variant="secondary" className="text-xs">
-                              MMS
-                            </Badge>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                    <Button
-                      onClick={() => purchaseNumber(number.phone_number)}
-                      disabled={isPurchasing}
-                      size="sm"
-                      className="bg-blue-600 hover:bg-blue-700"
-                    >
-                      {isPurchasing ? (
-                        <LoadingSpinner size="sm" className="mr-2" />
-                      ) : null}
-                      {isPurchasing ? "Purchasing..." : "Select"}
-                    </Button>
+                {isLoadingNumbers ? (
+                  <div className="flex items-center justify-center py-8">
+                    <LoadingSpinner size="lg" className="mr-2" />
+                    <span className="text-gray-600">
+                      Loading available numbers...
+                    </span>
                   </div>
-                ))}
+                ) : (
+                  <>
+                    <h4 className="font-medium text-gray-900">
+                      Available Numbers ({availableNumbers.length})
+                    </h4>
+                    {availableNumbers.map((number, index) => (
+                      <div
+                        key={index}
+                        className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50"
+                      >
+                        <div className="flex-1">
+                          <div className="font-medium">
+                            {formatPhoneNumber(number.phone_number)}
+                          </div>
+                          <div className="text-sm text-gray-500 flex items-center gap-4">
+                            <span className="flex items-center gap-1">
+                              <MapPin className="h-3 w-3" />
+                              {number.locality}, {number.region}
+                            </span>
+                            <div className="flex gap-1">
+                              {number.capabilities.voice && (
+                                <Badge variant="secondary" className="text-xs">
+                                  Voice
+                                </Badge>
+                              )}
+                              {number.capabilities.SMS && (
+                                <Badge variant="secondary" className="text-xs">
+                                  SMS
+                                </Badge>
+                              )}
+                              {number.capabilities.MMS && (
+                                <Badge variant="secondary" className="text-xs">
+                                  MMS
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        <Button
+                          onClick={() => purchaseNumber(number.phone_number)}
+                          disabled={isPurchasing}
+                          size="sm"
+                          className="bg-blue-600 hover:bg-blue-700"
+                        >
+                          {isPurchasing ? (
+                            <LoadingSpinner size="sm" className="mr-2" />
+                          ) : null}
+                          {isPurchasing ? "Purchasing..." : "Select"}
+                        </Button>
+                      </div>
+                    ))}
+                  </>
+                )}
               </div>
             )}
 
@@ -450,11 +504,13 @@ export default function Success() {
               >
                 Skip for now
               </Button>
-              {availableNumbers.length === 0 && !isLoadingNumbers && (
-                <div className="text-center flex-1 py-4 text-gray-500">
-                  Click "Search" to find available phone numbers
-                </div>
-              )}
+              {availableNumbers.length === 0 &&
+                !isLoadingNumbers &&
+                !showNumberSelection && (
+                  <div className="text-center flex-1 py-4 text-gray-500">
+                    Click "Search" to find available phone numbers
+                  </div>
+                )}
             </div>
           </div>
         </DialogContent>

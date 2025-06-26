@@ -46,6 +46,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return false;
     }
 
+    // Check if we have a cached result that's still valid (within 5 minutes)
+    const cacheKey = `payment_status_${user.id}`;
+    const cached = sessionStorage.getItem(cacheKey);
+    if (cached) {
+      const { status, timestamp } = JSON.parse(cached);
+      const now = Date.now();
+      if (now - timestamp < 300000) {
+        // 5 minutes cache to prevent tab switching redirects
+        console.log("Using cached payment status:", status);
+        setHasCompletedPayment(status);
+        return status;
+      }
+    }
+
     try {
       console.log("Checking payment status for user:", user.id);
 
@@ -99,16 +113,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         subscriptionData,
       });
 
+      // Cache the result
+      sessionStorage.setItem(
+        cacheKey,
+        JSON.stringify({
+          status: completed,
+          timestamp: Date.now(),
+        }),
+      );
+
       // Set payment status based on actual data
       setHasCompletedPayment(completed);
       return completed;
     } catch (error) {
       console.error("Error checking payment status:", error);
-      // On error, be more lenient - assume payment is complete to avoid disruption
-      // Only redirect to payment if we're certain they haven't paid
-      const fallbackStatus = hasCompletedPayment || true;
-      setHasCompletedPayment(fallbackStatus);
-      return fallbackStatus;
+      // On error, check if we have any cached status to fall back to
+      if (cached) {
+        const { status } = JSON.parse(cached);
+        console.log("Using cached payment status due to error:", status);
+        setHasCompletedPayment(status);
+        return status;
+      }
+      // Only as last resort, assume payment is incomplete
+      setHasCompletedPayment(false);
+      return false;
     }
   };
 
@@ -133,20 +161,50 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log("Auth state change:", event, session?.user?.id);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        // Add a small delay to ensure database is ready
-        setTimeout(async () => {
-          await checkPaymentStatus();
-        }, 100);
-      } else {
-        setHasCompletedPayment(false);
+
+      // Only check payment status on actual auth changes, not on tab focus
+      if (
+        event === "SIGNED_IN" ||
+        event === "SIGNED_OUT" ||
+        event === "TOKEN_REFRESHED"
+      ) {
+        setUser(session?.user ?? null);
+        if (session?.user) {
+          // Add a small delay to ensure database is ready
+          setTimeout(async () => {
+            await checkPaymentStatus();
+          }, 100);
+        } else {
+          setHasCompletedPayment(false);
+        }
+        setLoading(false);
       }
-      setLoading(false);
     });
 
-    return () => subscription.unsubscribe();
-  }, []);
+    // Handle page visibility changes to prevent unnecessary redirects
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible" && user) {
+        // Only refresh payment status if cache is very old (10+ minutes)
+        const cacheKey = `payment_status_${user.id}`;
+        const cached = sessionStorage.getItem(cacheKey);
+        if (cached) {
+          const { timestamp } = JSON.parse(cached);
+          const now = Date.now();
+          if (now - timestamp > 600000) {
+            // 10 minutes
+            checkPaymentStatus();
+          }
+        }
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      subscription.unsubscribe();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [user]);
 
   const signUp = async (email: string, password: string, fullName: string) => {
     const { data, error } = await supabase.auth.signUp({
