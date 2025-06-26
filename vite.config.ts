@@ -35,6 +35,14 @@ export default defineConfig({
     strictPort: false,
     // @ts-ignore
     allowedHosts: true,
+    hmr: {
+      port: 5173,
+      host: "0.0.0.0",
+    },
+    watch: {
+      usePolling: true,
+      interval: 100,
+    },
   },
   build: {
     rollupOptions: {

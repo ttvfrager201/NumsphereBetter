@@ -45,17 +45,43 @@ import {
   CheckCircle,
   XCircle,
   AlertCircle,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "../../../supabase/auth";
 import { supabase } from "../../../supabase/supabase";
 import { useToast } from "@/components/ui/use-toast";
 
+// Theme Context
+const useTheme = () => {
+  const [theme, setTheme] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("theme") || "light";
+    }
+    return "light";
+  });
+
+  useEffect(() => {
+    const root = window.document.documentElement;
+    root.classList.remove("light", "dark");
+    root.classList.add(theme);
+    localStorage.setItem("theme", theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme(theme === "light" ? "dark" : "light");
+  };
+
+  return { theme, toggleTheme };
+};
+
 // Payment History Component
 const PaymentHistory = () => {
   const { user } = useAuth();
   const [payments, setPayments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [stripeCustomerPortalUrl, setStripeCustomerPortalUrl] = useState<
     string | null
   >(null);
@@ -65,23 +91,29 @@ const PaymentHistory = () => {
       if (!user) return;
 
       try {
-        // Fetch payment history from Stripe via edge function
+        setError(null);
+        // Fetch payment history from Stripe via edge function with better error handling
         const { data, error } = await supabase.functions.invoke(
           "supabase-functions-get-payment-history",
           {
             body: { userId: user.id },
+            headers: {
+              "Content-Type": "application/json",
+            },
           },
         );
 
         if (error) {
-          // Silently handle errors to reduce console noise
+          console.error("Payment history error:", error);
+          setError("Unable to load payment history. Please try again later.");
           setPayments([]);
         } else {
-          setPayments(data.payments || []);
-          setStripeCustomerPortalUrl(data.customerPortalUrl || null);
+          setPayments(data?.payments || []);
+          setStripeCustomerPortalUrl(data?.customerPortalUrl || null);
         }
       } catch (error) {
-        // Silently handle errors to reduce console noise
+        console.error("Payment history fetch error:", error);
+        setError("Unable to load payment history. Please try again later.");
         setPayments([]);
       } finally {
         setLoading(false);
@@ -136,10 +168,27 @@ const PaymentHistory = () => {
     return (
       <div className="space-y-6">
         <div className="text-center py-8">
-          <h2 className="text-2xl font-bold text-gray-900 mb-4">
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-4">
             Payment History
           </h2>
-          <p className="text-gray-600">Loading payment history...</p>
+          <p className="text-gray-600 dark:text-gray-400">
+            Loading payment history...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <div className="text-center py-8">
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-4">
+            Payment History
+          </h2>
+          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+            <p className="text-red-600 dark:text-red-400">{error}</p>
+          </div>
         </div>
       </div>
     );
@@ -250,6 +299,7 @@ const Home = () => {
   const [stripeData, setStripeData] = useState<any>(null);
   const [loadingStripeData, setLoadingStripeData] = useState(true);
   const [stripeSubscription, setStripeSubscription] = useState<any>(null);
+  const { theme, toggleTheme } = useTheme();
 
   const [formData, setFormData] = useState({
     email: "",
@@ -281,38 +331,54 @@ const Home = () => {
           setUserProfile(profileData);
         }
 
-        // Fetch subscription data
-        const { data: subData, error: subError } = await supabase
-          .from("user_subscriptions")
-          .select(
-            "plan_id, status, created_at, stripe_customer_id, stripe_subscription_id",
-          )
-          .eq("user_id", user.id)
-          .eq("status", "active")
-          .single();
+        // Fetch subscription data with better error handling
+        try {
+          const { data: subData, error: subError } = await supabase
+            .from("user_subscriptions")
+            .select(
+              "plan_id, status, created_at, stripe_customer_id, stripe_subscription_id",
+            )
+            .eq("user_id", user.id)
+            .eq("status", "active")
+            .maybeSingle(); // Use maybeSingle instead of single to avoid errors when no data
 
-        if (!subError && subData) {
-          setSubscriptionData(subData);
-        } else if (subError && subError.code !== "PGRST116") {
-          console.error("Error fetching subscription:", subError);
+          if (!subError && subData) {
+            setSubscriptionData(subData);
+          } else if (subError) {
+            console.error("Error fetching subscription:", subError);
+          }
+        } catch (subError) {
+          console.error("Subscription fetch error:", subError);
         }
 
-        // Fetch Stripe data for real subscription info
+        // Fetch Stripe data for real subscription info with better error handling
         try {
           const { data: stripeResponse, error: stripeError } =
             await supabase.functions.invoke(
               "supabase-functions-get-payment-history",
               {
                 body: { userId: user.id },
+                headers: {
+                  "Content-Type": "application/json",
+                },
               },
             );
 
           if (!stripeError && stripeResponse) {
+            console.log("Stripe data received:", stripeResponse);
             setStripeData(stripeResponse);
             setStripeSubscription(stripeResponse?.subscription);
+          } else {
+            console.log("No Stripe data or error:", stripeError);
+            // Set empty data to show "No subscription" state
+            setStripeData(null);
+            setStripeSubscription(null);
           }
         } catch (error) {
-          // Silently handle Stripe API errors
+          console.error("Stripe API error:", error);
+          // Set empty data to show "No subscription" state
+          setStripeData(null);
+          setStripeSubscription(null);
         }
       } catch (error) {
         // Silently handle errors to reduce console noise
@@ -491,7 +557,7 @@ const Home = () => {
     }
   };
   return (
-    <div className="min-h-screen bg-[#f5f5f7]">
+    <div className="min-h-screen bg-[#f5f5f7] dark:bg-gray-900 transition-colors duration-200">
       <TopNavigation onSettingsClick={() => setIsSettingsOpen(true)} />
       <div className="flex h-[calc(100vh-64px)] mt-16">
         <Sidebar
@@ -500,11 +566,23 @@ const Home = () => {
           isCollapsed={isSidebarCollapsed}
           onToggleCollapse={handleToggleSidebar}
         />
-        <main className="flex-1 overflow-auto">
-          <div className="container mx-auto px-6 pt-4 pb-2 flex justify-end">
+        <main className="flex-1 overflow-auto hide-scrollbar">
+          <div className="container mx-auto px-6 pt-4 pb-2 flex justify-between items-center">
+            <Button
+              onClick={toggleTheme}
+              variant="outline"
+              size="icon"
+              className="rounded-full h-9 w-9 bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            >
+              {theme === "light" ? (
+                <Moon className="h-4 w-4 text-gray-600 dark:text-gray-300" />
+              ) : (
+                <Sun className="h-4 w-4 text-gray-600 dark:text-gray-300" />
+              )}
+            </Button>
             <Button
               onClick={handleRefresh}
-              className="bg-blue-500 hover:bg-blue-600 text-white rounded-full px-4 h-9 shadow-sm transition-colors flex items-center gap-2"
+              className="bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white rounded-full px-4 h-9 shadow-sm transition-colors flex items-center gap-2"
             >
               <RefreshCw
                 className={`h-4 w-4 ${loading ? "animate-spin" : ""}`}
@@ -522,8 +600,8 @@ const Home = () => {
             {activeTab === "Home" && (
               <div className="space-y-8">
                 {/* Big Hello Section */}
-                <div className="text-center py-8 bg-gradient-to-br from-blue-50 to-purple-50 rounded-2xl border border-blue-100">
-                  <h1 className="text-4xl font-bold text-gray-900 mb-4">
+                <div className="text-center py-8 bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 rounded-2xl border border-blue-100 dark:border-blue-800">
+                  <h1 className="text-4xl font-bold text-gray-900 dark:text-gray-100 mb-4">
                     Hello,{" "}
                     {userProfile?.full_name ||
                       user?.user_metadata?.full_name ||
@@ -531,10 +609,10 @@ const Home = () => {
                       "User"}
                     ! 👋
                   </h1>
-                  <p className="text-xl text-gray-600 mb-2">
+                  <p className="text-xl text-gray-600 dark:text-gray-300 mb-2">
                     Welcome to your NumSphere Dashboard
                   </p>
-                  <p className="text-gray-500">
+                  <p className="text-gray-500 dark:text-gray-400">
                     Manage your virtual phone numbers and call flows with ease
                   </p>
                 </div>
@@ -542,34 +620,37 @@ const Home = () => {
                 {/* Subscription Status Cards */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                   {/* Subscription Status Card */}
-                  <Card className="bg-white hover:shadow-lg transition-shadow duration-200">
+                  <Card className="bg-white dark:bg-gray-800 hover:shadow-lg dark:hover:shadow-gray-900/20 transition-shadow duration-200 border-gray-200 dark:border-gray-700">
                     <CardHeader className="pb-3">
-                      <CardTitle className="text-sm font-medium text-gray-600">
+                      <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
                         Subscription Status
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
                       {loadingStripeData ? (
                         <div className="animate-pulse">
-                          <div className="h-6 bg-gray-200 rounded mb-2"></div>
-                          <div className="h-4 bg-gray-200 rounded w-16"></div>
+                          <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded mb-2"></div>
+                          <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-16"></div>
                         </div>
                       ) : (
                         <div className="flex items-center gap-2">
-                          {subscriptionData?.status === "active" ? (
+                          {stripeSubscription?.status === "active" ||
+                          subscriptionData?.status === "active" ? (
                             <CheckCircle className="h-5 w-5 text-green-500" />
                           ) : (
                             <XCircle className="h-5 w-5 text-red-500" />
                           )}
-                          <span className="text-lg font-semibold text-gray-900">
-                            {subscriptionData?.status === "active"
+                          <span className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                            {stripeSubscription?.status === "active" ||
+                            subscriptionData?.status === "active"
                               ? "Active"
                               : "Inactive"}
                           </span>
                         </div>
                       )}
-                      <p className="text-sm text-gray-500 mt-1">
-                        {stripeSubscription?.name ||
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                        {stripeSubscription?.product_name ||
+                          stripeSubscription?.name ||
                           (subscriptionData?.plan_id
                             ? `${subscriptionData.plan_id.charAt(0).toUpperCase() + subscriptionData.plan_id.slice(1)} Plan`
                             : "Free Plan")}
@@ -578,28 +659,29 @@ const Home = () => {
                   </Card>
 
                   {/* Next Billing Cycle Card */}
-                  <Card className="bg-white hover:shadow-lg transition-shadow duration-200">
+                  <Card className="bg-white dark:bg-gray-800 hover:shadow-lg dark:hover:shadow-gray-900/20 transition-shadow duration-200 border-gray-200 dark:border-gray-700">
                     <CardHeader className="pb-3">
-                      <CardTitle className="text-sm font-medium text-gray-600">
+                      <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
                         Next Billing
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
                       {loadingStripeData ? (
                         <div className="animate-pulse">
-                          <div className="h-6 bg-gray-200 rounded mb-2"></div>
-                          <div className="h-4 bg-gray-200 rounded w-20"></div>
+                          <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded mb-2"></div>
+                          <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-20"></div>
                         </div>
                       ) : (
                         <div className="flex items-center gap-2">
                           <CreditCard className="h-5 w-5 text-blue-500" />
-                          <span className="text-lg font-semibold text-gray-900">
+                          <span className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                             {stripeSubscription?.current_period_end
                               ? new Date(
                                   stripeSubscription.current_period_end * 1000,
                                 ).toLocaleDateString("en-US", {
                                   month: "short",
                                   day: "numeric",
+                                  year: "numeric",
                                 })
                               : subscriptionData?.created_at
                                 ? new Date(
@@ -610,35 +692,37 @@ const Home = () => {
                                   ).toLocaleDateString("en-US", {
                                     month: "short",
                                     day: "numeric",
+                                    year: "numeric",
                                   })
                                 : "N/A"}
                           </span>
                         </div>
                       )}
-                      <p className="text-sm text-gray-500 mt-1">
-                        {subscriptionData?.status === "active"
-                          ? "Monthly billing"
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                        {stripeSubscription?.status === "active" ||
+                        subscriptionData?.status === "active"
+                          ? `${stripeSubscription?.interval || "Monthly"} billing`
                           : "No active billing"}
                       </p>
                     </CardContent>
                   </Card>
 
                   {/* Payment Amount Card */}
-                  <Card className="bg-white hover:shadow-lg transition-shadow duration-200">
+                  <Card className="bg-white dark:bg-gray-800 hover:shadow-lg dark:hover:shadow-gray-900/20 transition-shadow duration-200 border-gray-200 dark:border-gray-700">
                     <CardHeader className="pb-3">
-                      <CardTitle className="text-sm font-medium text-gray-600">
+                      <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
                         Monthly Payment
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
                       {loadingStripeData ? (
                         <div className="animate-pulse">
-                          <div className="h-8 bg-gray-200 rounded mb-2"></div>
-                          <div className="h-4 bg-gray-200 rounded w-16"></div>
+                          <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded mb-2"></div>
+                          <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-16"></div>
                         </div>
                       ) : (
                         <div className="flex items-center gap-2">
-                          <span className="text-2xl font-bold text-gray-900">
+                          <span className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                             {stripeSubscription?.amount
                               ? new Intl.NumberFormat("en-US", {
                                   style: "currency",
@@ -647,19 +731,20 @@ const Home = () => {
                                     "USD",
                                 }).format(stripeSubscription.amount / 100)
                               : subscriptionData?.plan_id === "starter"
-                                ? "$9.99"
+                                ? "$9.00"
                                 : subscriptionData?.plan_id === "business"
-                                  ? "$29.99"
+                                  ? "$29.00"
                                   : subscriptionData?.plan_id === "enterprise"
-                                    ? "$99.99"
+                                    ? "$99.00"
                                     : "$0.00"}
                           </span>
                         </div>
                       )}
-                      <p className="text-sm text-gray-500 mt-1">
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                         {stripeSubscription?.interval
                           ? `Per ${stripeSubscription.interval}`
-                          : subscriptionData?.status === "active"
+                          : stripeSubscription?.status === "active" ||
+                              subscriptionData?.status === "active"
                             ? "Per month"
                             : "No subscription"}
                       </p>
@@ -667,31 +752,43 @@ const Home = () => {
                   </Card>
 
                   {/* Credits Usage Card */}
-                  <Card className="bg-white hover:shadow-lg transition-shadow duration-200">
+                  <Card className="bg-white dark:bg-gray-800 hover:shadow-lg dark:hover:shadow-gray-900/20 transition-shadow duration-200 border-gray-200 dark:border-gray-700">
                     <CardHeader className="pb-3">
-                      <CardTitle className="text-sm font-medium text-gray-600">
+                      <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
                         Minutes Used
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
                       {loadingStripeData ? (
                         <div className="animate-pulse">
-                          <div className="h-6 bg-gray-200 rounded mb-2"></div>
-                          <div className="h-2 bg-gray-200 rounded"></div>
+                          <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded mb-2"></div>
+                          <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded"></div>
                         </div>
                       ) : (
                         <div className="space-y-2">
                           <div className="flex justify-between items-center">
-                            <span className="text-lg font-semibold text-gray-900">
-                              {subscriptionData?.plan_id ? "0%" : "N/A"}
+                            <span className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                              {stripeSubscription?.status === "active" ||
+                              subscriptionData?.plan_id
+                                ? "0%"
+                                : "N/A"}
                             </span>
-                            <span className="text-sm text-gray-500">
-                              {subscriptionData?.plan_id ? "0/1000" : "No plan"}
+                            <span className="text-sm text-gray-500 dark:text-gray-400">
+                              {stripeSubscription?.status === "active" ||
+                              subscriptionData?.plan_id
+                                ? subscriptionData?.plan_id === "starter"
+                                  ? "0/500"
+                                  : subscriptionData?.plan_id === "business"
+                                    ? "0/2000"
+                                    : subscriptionData?.plan_id === "enterprise"
+                                      ? "0/Unlimited"
+                                      : "0/500"
+                                : "No plan"}
                             </span>
                           </div>
-                          <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                             <div
-                              className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                              className="bg-blue-500 dark:bg-blue-400 h-2 rounded-full transition-all duration-300"
                               style={{ width: "0%" }}
                             ></div>
                           </div>
@@ -702,14 +799,14 @@ const Home = () => {
                 </div>
 
                 {/* Quick Actions */}
-                <div className="bg-white rounded-2xl p-6 border border-gray-200">
-                  <h3 className="text-xl font-semibold text-gray-900 mb-4">
+                <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 border border-gray-200 dark:border-gray-700">
+                  <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">
                     Quick Actions
                   </h3>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <Button
                       onClick={() => setActiveTab("Select Number")}
-                      className="h-16 bg-blue-600 hover:bg-blue-700 text-white rounded-xl flex flex-col items-center justify-center gap-2"
+                      className="h-16 bg-blue-600 hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-800 text-white rounded-xl flex flex-col items-center justify-center gap-2"
                     >
                       <span className="text-lg">📞</span>
                       <span>Get Phone Number</span>
@@ -717,7 +814,7 @@ const Home = () => {
                     <Button
                       onClick={() => setActiveTab("Call Flows")}
                       variant="outline"
-                      className="h-16 rounded-xl flex flex-col items-center justify-center gap-2"
+                      className="h-16 rounded-xl flex flex-col items-center justify-center gap-2 border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
                     >
                       <span className="text-lg">🔄</span>
                       <span>Setup Call Flows</span>
@@ -725,7 +822,7 @@ const Home = () => {
                     <Button
                       onClick={() => setActiveTab("Payment History")}
                       variant="outline"
-                      className="h-16 rounded-xl flex flex-col items-center justify-center gap-2"
+                      className="h-16 rounded-xl flex flex-col items-center justify-center gap-2 border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
                     >
                       <span className="text-lg">💳</span>
                       <span>View Payments</span>
@@ -738,11 +835,11 @@ const Home = () => {
                   <Button
                     onClick={() => setActiveTab("Select Number")}
                     size="lg"
-                    className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white px-8 py-4 text-lg rounded-xl shadow-lg"
+                    className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 dark:from-blue-700 dark:to-purple-700 dark:hover:from-blue-800 dark:hover:to-purple-800 text-white px-8 py-4 text-lg rounded-xl shadow-lg"
                   >
                     🚀 Quick Start - Get Your First Number
                   </Button>
-                  <p className="text-sm text-gray-500 mt-2">
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
                     Get started by selecting your first phone number
                   </p>
                 </div>
@@ -757,13 +854,15 @@ const Home = () => {
 
             {activeTab === "Call Flows" && (
               <div className="text-center py-8">
-                <h2 className="text-2xl font-bold text-gray-900 mb-4">
+                <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-4">
                   Call Flows
                 </h2>
-                <p className="text-gray-600">
+                <p className="text-gray-600 dark:text-gray-300">
                   Design and manage your custom call flows here.
                 </p>
-                <p className="text-sm text-gray-500 mt-2">Coming soon...</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+                  Coming soon...
+                </p>
               </div>
             )}
 
@@ -774,10 +873,12 @@ const Home = () => {
 
       {/* Settings Dialog */}
       <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto hide-scrollbar bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700">
           <DialogHeader>
-            <DialogTitle>Account Settings</DialogTitle>
-            <DialogDescription>
+            <DialogTitle className="text-gray-900 dark:text-gray-100">
+              Account Settings
+            </DialogTitle>
+            <DialogDescription className="text-gray-600 dark:text-gray-400">
               Manage your account preferences and subscription.
             </DialogDescription>
           </DialogHeader>
