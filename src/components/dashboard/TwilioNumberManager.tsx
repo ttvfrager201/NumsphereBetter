@@ -116,7 +116,6 @@ export default function TwilioNumberManager() {
     } else {
       setIsLoadingAvailable(true);
       setCurrentPage(0);
-      // Always reset available numbers when starting a new search
       setAvailableNumbers([]);
     }
 
@@ -175,10 +174,11 @@ export default function TwilioNumberManager() {
         );
 
         if (isLoadMore) {
+          // Append new numbers to existing list for infinite scroll
           setAvailableNumbers((prev) => [...prev, ...numbersWithPricing]);
           setCurrentPage((prev) => prev + 1);
         } else {
-          // For new searches, always replace the entire array
+          // For new searches, replace the entire array
           setAvailableNumbers(numbersWithPricing);
           setCurrentPage(0);
         }
@@ -369,18 +369,26 @@ export default function TwilioNumberManager() {
                         Available Numbers ({availableNumbers.length})
                       </h4>
                     </div>
-                    <div className="text-sm text-gray-600 mb-3 p-2 bg-blue-50 rounded">
-                      💡Press Select to Get your Phone Number!
+                    <div className="text-sm text-gray-600 mb-3 p-3 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg border border-blue-100">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">🎯</span>
+                        <span className="font-medium">Pro Tip:</span>
+                        <span>
+                          Press Select to claim your perfect phone number!
+                        </span>
+                      </div>
                     </div>
                     <div
                       className="max-h-96 overflow-y-auto space-y-2"
                       onScroll={(e) => {
                         const { scrollTop, scrollHeight, clientHeight } =
                           e.currentTarget;
+                        // Trigger load more when user scrolls near the bottom (within 50px)
                         if (
-                          scrollHeight - scrollTop === clientHeight &&
+                          scrollHeight - scrollTop - clientHeight < 50 &&
                           !isLoadingMore &&
-                          !areaCode
+                          availableNumbers.length > 0 &&
+                          availableNumbers.length % 30 === 0 // Only load more if we have full pages
                         ) {
                           fetchAvailableNumbers(true);
                         }
@@ -388,37 +396,45 @@ export default function TwilioNumberManager() {
                     >
                       {availableNumbers.map((number, index) => (
                         <div
-                          key={index}
-                          className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50"
+                          key={`${number.phone_number}-${index}`}
+                          className="flex items-center justify-between p-4 border rounded-xl hover:bg-gradient-to-r hover:from-blue-50 hover:to-purple-50 hover:border-blue-200 transition-all duration-200 group"
                         >
                           <div className="flex-1">
-                            <div className="font-medium">
+                            <div className="font-semibold text-lg text-gray-900 group-hover:text-blue-900">
                               {formatPhoneNumber(number.phone_number)}
                             </div>
-                            <div className="text-sm text-gray-500 flex items-center gap-4">
+                            <div className="text-sm text-gray-500 flex items-center gap-4 mt-1">
                               <span className="flex items-center gap-1">
-                                <MapPin className="h-3 w-3" />
+                                <MapPin className="h-3 w-3 text-blue-500" />
                                 {number.locality}, {number.region}
                               </span>
-                              <span className="font-medium text-green-600"></span>
+                              <span className="font-medium text-green-600 bg-green-50 px-2 py-1 rounded-full text-xs">
+                                $1.25/month
+                              </span>
                               <div className="flex gap-1">
                                 {number.capabilities.voice && (
                                   <Badge
                                     variant="secondary"
-                                    className="text-xs"
-                                  ></Badge>
+                                    className="text-xs bg-blue-100 text-blue-700"
+                                  >
+                                    Voice
+                                  </Badge>
                                 )}
                                 {number.capabilities.SMS && (
                                   <Badge
                                     variant="secondary"
-                                    className="text-xs"
-                                  ></Badge>
+                                    className="text-xs bg-green-100 text-green-700"
+                                  >
+                                    SMS
+                                  </Badge>
                                 )}
                                 {number.capabilities.MMS && (
                                   <Badge
                                     variant="secondary"
-                                    className="text-xs"
-                                  ></Badge>
+                                    className="text-xs bg-purple-100 text-purple-700"
+                                  >
+                                    MMS
+                                  </Badge>
                                 )}
                               </div>
                             </div>
@@ -427,25 +443,34 @@ export default function TwilioNumberManager() {
                             onClick={() => purchaseNumber(number.phone_number)}
                             disabled={isPurchasing}
                             size="sm"
-                            className="bg-blue-600 hover:bg-blue-700"
+                            className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white shadow-lg hover:shadow-xl transition-all duration-200 px-6"
                           >
                             {isPurchasing &&
                             selectedNumber === number.phone_number ? (
                               <LoadingSpinner size="sm" className="mr-2" />
-                            ) : null}
+                            ) : (
+                              <span className="mr-2">⚡</span>
+                            )}
                             {isPurchasing &&
                             selectedNumber === number.phone_number
-                              ? "Selecting ..."
+                              ? "Selecting..."
                               : "Select"}
                           </Button>
                         </div>
                       ))}
                       {isLoadingMore && (
-                        <div className="flex items-center justify-center py-4">
-                          <LoadingSpinner size="sm" className="mr-2" />
-                          <span className="text-sm text-gray-600">
-                            Loading more numbers...
-                          </span>
+                        <div className="flex items-center justify-center py-6 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg">
+                          <div className="flex items-center gap-3">
+                            <div className="relative">
+                              <div className="h-8 w-8 rounded-full border-4 border-blue-100 border-t-blue-500 animate-spin" />
+                              <div className="absolute inset-0 flex items-center justify-center">
+                                <div className="h-3 w-3 rounded-full bg-blue-500/20 animate-pulse" />
+                              </div>
+                            </div>
+                            <span className="text-sm font-medium text-gray-700">
+                              🔍 Finding more amazing numbers for you...
+                            </span>
+                          </div>
                         </div>
                       )}
                     </div>

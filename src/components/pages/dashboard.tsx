@@ -56,6 +56,9 @@ const PaymentHistory = () => {
   const { user } = useAuth();
   const [payments, setPayments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [stripeCustomerPortalUrl, setStripeCustomerPortalUrl] = useState<
+    string | null
+  >(null);
 
   useEffect(() => {
     const fetchPaymentHistory = async () => {
@@ -72,44 +75,15 @@ const PaymentHistory = () => {
 
         if (error) {
           console.error("Error fetching payment history:", error);
-          // Mock data for demonstration
-          setPayments([
-            {
-              id: "pi_1234567890",
-              amount: 2999,
-              currency: "usd",
-              status: "succeeded",
-              created: new Date(
-                Date.now() - 30 * 24 * 60 * 60 * 1000,
-              ).toISOString(),
-              description: "Pro Plan - Monthly",
-            },
-            {
-              id: "pi_0987654321",
-              amount: 2999,
-              currency: "usd",
-              status: "succeeded",
-              created: new Date(
-                Date.now() - 60 * 24 * 60 * 60 * 1000,
-              ).toISOString(),
-              description: "Pro Plan - Monthly",
-            },
-            {
-              id: "pi_1122334455",
-              amount: 2999,
-              currency: "usd",
-              status: "failed",
-              created: new Date(
-                Date.now() - 90 * 24 * 60 * 60 * 1000,
-              ).toISOString(),
-              description: "Pro Plan - Monthly",
-            },
-          ]);
+          // Fallback to empty array if error
+          setPayments([]);
         } else {
           setPayments(data.payments || []);
+          setStripeCustomerPortalUrl(data.customerPortalUrl || null);
         }
       } catch (error) {
         console.error("Error fetching payment history:", error);
+        setPayments([]);
       } finally {
         setLoading(false);
       }
@@ -183,54 +157,87 @@ const PaymentHistory = () => {
         </p>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Transaction History</CardTitle>
-          <CardDescription>
-            All payments and billing transactions for your account
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {payments.length === 0 ? (
-            <div className="text-center py-8">
-              <p className="text-gray-500">No payment history found.</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {payments.map((payment) => (
-                <div
-                  key={payment.id}
-                  className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+      <div className="space-y-6">
+        {/* Stripe Customer Portal Link */}
+        {stripeCustomerPortalUrl && (
+          <Card className="bg-blue-50 border-blue-200">
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-medium text-blue-900">
+                    Manage Your Subscription
+                  </h3>
+                  <p className="text-sm text-blue-700 mt-1">
+                    Update payment methods, download invoices, and manage your
+                    billing preferences
+                  </p>
+                </div>
+                <Button
+                  onClick={() => window.open(stripeCustomerPortalUrl, "_blank")}
+                  className="bg-blue-600 hover:bg-blue-700 text-white"
                 >
-                  <div className="flex items-center gap-3">
-                    {getStatusIcon(payment.status)}
-                    <div>
-                      <p className="font-medium text-gray-900">
-                        {payment.description || "Payment"}
+                  <CreditCard className="h-4 w-4 mr-2" />
+                  Manage Billing
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Transaction History</CardTitle>
+            <CardDescription>
+              All payments and billing transactions for your account
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {payments.length === 0 ? (
+              <div className="text-center py-8">
+                <CreditCard className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                <p className="text-gray-500 mb-2">No payment history found.</p>
+                <p className="text-sm text-gray-400">
+                  Your payment transactions will appear here once you make your
+                  first payment.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {payments.map((payment) => (
+                  <div
+                    key={payment.id}
+                    className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      {getStatusIcon(payment.status)}
+                      <div>
+                        <p className="font-medium text-gray-900">
+                          {payment.description || "Payment"}
+                        </p>
+                        <p className="text-sm text-gray-500">
+                          {formatDate(payment.created)} • ID:{" "}
+                          {payment.id.slice(-8)}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-semibold text-gray-900">
+                        {formatAmount(payment.amount, payment.currency)}
                       </p>
-                      <p className="text-sm text-gray-500">
-                        {formatDate(payment.created)} • ID:{" "}
-                        {payment.id.slice(-8)}
-                      </p>
+                      <span
+                        className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ${getStatusColor(payment.status)}`}
+                      >
+                        {payment.status.charAt(0).toUpperCase() +
+                          payment.status.slice(1)}
+                      </span>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <p className="font-semibold text-gray-900">
-                      {formatAmount(payment.amount, payment.currency)}
-                    </p>
-                    <span
-                      className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ${getStatusColor(payment.status)}`}
-                    >
-                      {payment.status.charAt(0).toUpperCase() +
-                        payment.status.slice(1)}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 };
@@ -240,6 +247,10 @@ const Home = () => {
   const [activeTab, setActiveTab] = useState("Home");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [subscriptionData, setSubscriptionData] = useState<any>(null);
+  const [stripeData, setStripeData] = useState<any>(null);
+  const [loadingStripeData, setLoadingStripeData] = useState(true);
+  const [stripeSubscription, setStripeSubscription] = useState<any>(null);
 
   const [formData, setFormData] = useState({
     email: "",
@@ -254,29 +265,62 @@ const Home = () => {
   const { user, signOut, checkPaymentStatus } = useAuth();
   const { toast } = useToast();
 
-  // Fetch user profile data
+  // Fetch user profile and subscription data
   useEffect(() => {
-    const fetchUserProfile = async () => {
+    const fetchUserData = async () => {
       if (!user) return;
 
       try {
-        const { data, error } = await supabase
+        // Fetch user profile
+        const { data: profileData, error: profileError } = await supabase
           .from("users")
           .select("full_name, avatar_url")
           .eq("id", user.id)
           .single();
 
-        if (error) {
-          console.error("Error fetching user profile:", error);
+        if (profileError) {
+          console.error("Error fetching user profile:", profileError);
         } else {
-          setUserProfile(data);
+          setUserProfile(profileData);
+        }
+
+        // Fetch subscription data
+        const { data: subData, error: subError } = await supabase
+          .from("user_subscriptions")
+          .select("*")
+          .eq("user_id", user.id)
+          .eq("status", "active")
+          .single();
+
+        if (subError) {
+          console.error("Error fetching subscription data:", subError);
+        } else {
+          setSubscriptionData(subData);
+        }
+
+        // Fetch Stripe data for real subscription info
+        const { data: stripeResponse, error: stripeError } =
+          await supabase.functions.invoke(
+            "supabase-functions-get-payment-history",
+            {
+              body: { userId: user.id },
+            },
+          );
+
+        if (stripeError) {
+          console.error("Error fetching Stripe data:", stripeError);
+        } else {
+          setStripeData(stripeResponse);
+          setStripeSubscription(stripeResponse?.subscription);
         }
       } catch (error) {
-        console.error("Error fetching user profile:", error);
+        console.error("Error fetching user data:", error);
+      } finally {
+        setLoadingStripeData(false);
       }
     };
 
-    fetchUserProfile();
+    fetchUserData();
   }, [user]);
 
   // Function to trigger loading state for demonstration
@@ -475,17 +519,231 @@ const Home = () => {
           >
             {/* Content based on active tab */}
             {activeTab === "Home" && (
-              <div className="text-center py-8">
-                <h2 className="text-2xl font-bold text-gray-900 mb-4">
-                  Welcome to NumSphere Dashboard
-                </h2>
-                <p className="text-gray-600">
-                  Manage your virtual phone numbers and call flows from the
-                  sidebar.
-                </p>
-                <p className="text-sm text-gray-500 mt-2">
-                  Select an option from the sidebar to get started.
-                </p>
+              <div className="space-y-8">
+                {/* Big Hello Section */}
+                <div className="text-center py-8 bg-gradient-to-br from-blue-50 to-purple-50 rounded-2xl border border-blue-100">
+                  <h1 className="text-4xl font-bold text-gray-900 mb-4">
+                    Hello,{" "}
+                    {userProfile?.full_name ||
+                      user?.user_metadata?.full_name ||
+                      user?.email?.split("@")[0] ||
+                      "User"}
+                    ! 👋
+                  </h1>
+                  <p className="text-xl text-gray-600 mb-2">
+                    Welcome to your NumSphere Dashboard
+                  </p>
+                  <p className="text-gray-500">
+                    Manage your virtual phone numbers and call flows with ease
+                  </p>
+                </div>
+
+                {/* Subscription Status Cards */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                  {/* Subscription Status Card */}
+                  <Card className="bg-white hover:shadow-lg transition-shadow duration-200">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm font-medium text-gray-600">
+                        Subscription Status
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {loadingStripeData ? (
+                        <div className="animate-pulse">
+                          <div className="h-6 bg-gray-200 rounded mb-2"></div>
+                          <div className="h-4 bg-gray-200 rounded w-16"></div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          {subscriptionData?.status === "active" ? (
+                            <CheckCircle className="h-5 w-5 text-green-500" />
+                          ) : (
+                            <XCircle className="h-5 w-5 text-red-500" />
+                          )}
+                          <span className="text-lg font-semibold text-gray-900">
+                            {subscriptionData?.status === "active"
+                              ? "Active"
+                              : "Inactive"}
+                          </span>
+                        </div>
+                      )}
+                      <p className="text-sm text-gray-500 mt-1">
+                        {stripeSubscription?.name ||
+                          (subscriptionData?.plan_id
+                            ? `${subscriptionData.plan_id.charAt(0).toUpperCase() + subscriptionData.plan_id.slice(1)} Plan`
+                            : "Free Plan")}
+                      </p>
+                    </CardContent>
+                  </Card>
+
+                  {/* Next Billing Cycle Card */}
+                  <Card className="bg-white hover:shadow-lg transition-shadow duration-200">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm font-medium text-gray-600">
+                        Next Billing
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {loadingStripeData ? (
+                        <div className="animate-pulse">
+                          <div className="h-6 bg-gray-200 rounded mb-2"></div>
+                          <div className="h-4 bg-gray-200 rounded w-20"></div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <CreditCard className="h-5 w-5 text-blue-500" />
+                          <span className="text-lg font-semibold text-gray-900">
+                            {stripeSubscription?.current_period_end
+                              ? new Date(
+                                  stripeSubscription.current_period_end * 1000,
+                                ).toLocaleDateString("en-US", {
+                                  month: "short",
+                                  day: "numeric",
+                                })
+                              : subscriptionData?.created_at
+                                ? new Date(
+                                    new Date(
+                                      subscriptionData.created_at,
+                                    ).getTime() +
+                                      30 * 24 * 60 * 60 * 1000,
+                                  ).toLocaleDateString("en-US", {
+                                    month: "short",
+                                    day: "numeric",
+                                  })
+                                : "N/A"}
+                          </span>
+                        </div>
+                      )}
+                      <p className="text-sm text-gray-500 mt-1">
+                        {subscriptionData?.status === "active"
+                          ? "Monthly billing"
+                          : "No active billing"}
+                      </p>
+                    </CardContent>
+                  </Card>
+
+                  {/* Payment Amount Card */}
+                  <Card className="bg-white hover:shadow-lg transition-shadow duration-200">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm font-medium text-gray-600">
+                        Monthly Payment
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {loadingStripeData ? (
+                        <div className="animate-pulse">
+                          <div className="h-8 bg-gray-200 rounded mb-2"></div>
+                          <div className="h-4 bg-gray-200 rounded w-16"></div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <span className="text-2xl font-bold text-gray-900">
+                            {stripeSubscription?.amount
+                              ? new Intl.NumberFormat("en-US", {
+                                  style: "currency",
+                                  currency:
+                                    stripeSubscription.currency.toUpperCase(),
+                                }).format(stripeSubscription.amount / 100)
+                              : subscriptionData?.plan_id === "starter"
+                                ? "$9.99"
+                                : subscriptionData?.plan_id === "business"
+                                  ? "$29.99"
+                                  : subscriptionData?.plan_id === "enterprise"
+                                    ? "$99.99"
+                                    : "$0.00"}
+                          </span>
+                        </div>
+                      )}
+                      <p className="text-sm text-gray-500 mt-1">
+                        {stripeSubscription?.interval
+                          ? `Per ${stripeSubscription.interval}`
+                          : subscriptionData?.status === "active"
+                            ? "Per month"
+                            : "No subscription"}
+                      </p>
+                    </CardContent>
+                  </Card>
+
+                  {/* Credits Usage Card */}
+                  <Card className="bg-white hover:shadow-lg transition-shadow duration-200">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm font-medium text-gray-600">
+                        Minutes Used
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {loadingStripeData ? (
+                        <div className="animate-pulse">
+                          <div className="h-6 bg-gray-200 rounded mb-2"></div>
+                          <div className="h-2 bg-gray-200 rounded"></div>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <div className="flex justify-between items-center">
+                            <span className="text-lg font-semibold text-gray-900">
+                              {subscriptionData?.plan_id ? "0%" : "N/A"}
+                            </span>
+                            <span className="text-sm text-gray-500">
+                              {subscriptionData?.plan_id ? "0/1000" : "No plan"}
+                            </span>
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-2">
+                            <div
+                              className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                              style={{ width: "0%" }}
+                            ></div>
+                          </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Quick Actions */}
+                <div className="bg-white rounded-2xl p-6 border border-gray-200">
+                  <h3 className="text-xl font-semibold text-gray-900 mb-4">
+                    Quick Actions
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <Button
+                      onClick={() => setActiveTab("Select Number")}
+                      className="h-16 bg-blue-600 hover:bg-blue-700 text-white rounded-xl flex flex-col items-center justify-center gap-2"
+                    >
+                      <span className="text-lg">📞</span>
+                      <span>Get Phone Number</span>
+                    </Button>
+                    <Button
+                      onClick={() => setActiveTab("Call Flows")}
+                      variant="outline"
+                      className="h-16 rounded-xl flex flex-col items-center justify-center gap-2"
+                    >
+                      <span className="text-lg">🔄</span>
+                      <span>Setup Call Flows</span>
+                    </Button>
+                    <Button
+                      onClick={() => setActiveTab("Payment History")}
+                      variant="outline"
+                      className="h-16 rounded-xl flex flex-col items-center justify-center gap-2"
+                    >
+                      <span className="text-lg">💳</span>
+                      <span>View Payments</span>
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Quick Start Button */}
+                <div className="text-center py-8">
+                  <Button
+                    onClick={() => setActiveTab("Select Number")}
+                    size="lg"
+                    className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white px-8 py-4 text-lg rounded-xl shadow-lg"
+                  >
+                    🚀 Quick Start - Get Your First Number
+                  </Button>
+                  <p className="text-sm text-gray-500 mt-2">
+                    Get started by selecting your first phone number
+                  </p>
+                </div>
               </div>
             )}
 
