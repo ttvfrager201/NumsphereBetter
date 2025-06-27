@@ -21,25 +21,55 @@ import { Toaster } from "./components/ui/toaster";
 import { LoadingScreen, LoadingSpinner } from "./components/ui/loading-spinner";
 
 function PlanSelectionWrapper() {
-  const { hasCompletedPayment, loading, user } = useAuth();
+  const { hasCompletedPayment, loading, user, checkPaymentStatus } = useAuth();
   const navigate = useNavigate();
+  const [isCheckingSubscription, setIsCheckingSubscription] =
+    React.useState(true);
+  const [searchParams] = React.useMemo(
+    () => [new URLSearchParams(window.location.search)],
+    [],
+  );
 
   React.useEffect(() => {
-    if (!loading && user && hasCompletedPayment) {
-      navigate("/dashboard", { replace: true });
+    // Check for payment cancellation
+    if (searchParams.get("cancelled") === "true") {
+      // Clear any pending session data
+      sessionStorage.removeItem("payment_session");
+      setIsCheckingSubscription(false);
+      return;
     }
-  }, [user, hasCompletedPayment, loading, navigate]);
+
+    // Enhanced subscription check
+    const checkSubscriptionStatus = async () => {
+      if (!user || loading) return;
+
+      try {
+        setIsCheckingSubscription(true);
+        const hasValidPayment = await checkPaymentStatus();
+
+        if (hasValidPayment) {
+          navigate("/dashboard", { replace: true });
+        }
+      } catch (error) {
+        console.error("Error checking subscription status:", error);
+      } finally {
+        setIsCheckingSubscription(false);
+      }
+    };
+
+    checkSubscriptionStatus();
+  }, [user, loading, navigate, searchParams, checkPaymentStatus]);
 
   if (!loading && !user) {
     return <Navigate to="/" replace />;
   }
 
-  if (!loading && user && hasCompletedPayment) {
-    return <Navigate to="/dashboard" replace />;
+  if (loading || isCheckingSubscription) {
+    return <LoadingScreen text="Checking subscription status..." />;
   }
 
-  if (loading) {
-    return <LoadingScreen text="Loading..." />;
+  if (!loading && user && hasCompletedPayment) {
+    return <Navigate to="/dashboard" replace />;
   }
 
   return <PlanSelection hasActiveSubscription={hasCompletedPayment} />;

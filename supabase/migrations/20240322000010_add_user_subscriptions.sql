@@ -5,7 +5,9 @@ CREATE TABLE IF NOT EXISTS public.user_subscriptions (
   stripe_customer_id TEXT,
   stripe_subscription_id TEXT,
   stripe_checkout_session_id TEXT,
-  status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'canceled', 'past_due')),
+  status TEXT DEFAULT 'pending_payment' CHECK (status IN ('pending_payment', 'pending', 'active', 'canceled', 'past_due', 'paused')),
+  security_fingerprint TEXT,
+  payment_verified_at TIMESTAMP WITH TIME ZONE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

@@ -262,7 +262,20 @@ const PaymentHistory = () => {
 
 const Home = () => {
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState("Home");
+  const [activeTab, setActiveTab] = useState(() => {
+    // Check URL params for initial tab
+    const urlParams = new URLSearchParams(window.location.search);
+    const tabParam = urlParams.get("tab");
+    const isFirstTime = urlParams.get("first_time") === "true";
+
+    if (isFirstTime && tabParam === "Select Number") {
+      // Clear URL params after reading them
+      window.history.replaceState({}, document.title, window.location.pathname);
+      return "Select Number";
+    }
+
+    return "Home";
+  });
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [subscriptionData, setSubscriptionData] = useState<any>(null);

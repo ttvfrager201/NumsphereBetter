@@ -9,11 +9,48 @@ const corsHeaders = {
 };
 
 // Configuration utilities
-function getFrontendBaseUrl(): string {
-  // Use the hardcoded URL for your Tempo deployment
-  const baseUrl = "https://festive-archimedes4-plpw3.view-3.tempo-dev.app";
-  console.log("Using frontend base URL:", baseUrl);
-  return baseUrl;
+async function getFrontendBaseUrl(): Promise<string> {
+  try {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_KEY");
+
+    if (!supabaseUrl || !supabaseServiceKey) {
+      throw new Error("Missing Supabase configuration");
+    }
+
+    const response = await fetch(
+      `${supabaseUrl}/rest/v1/app_settings?select=frontend_url&key=eq.frontend_base_url`,
+      {
+        headers: {
+          Authorization: `Bearer ${supabaseServiceKey}`,
+          apikey: supabaseServiceKey,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+
+    if (response.ok) {
+      const data = await response.json();
+      if (data && data.length > 0 && data[0].frontend_url) {
+        console.log("Using database frontend URL:", data[0].frontend_url);
+        return data[0].frontend_url;
+      }
+    }
+
+    // Fallback to environment variable or default
+    const fallbackUrl =
+      Deno.env.get("FRONTEND_URL") ||
+      "https://mystifying-torvalds4-r9r87.view-3.tempo-dev.app";
+    console.log("Using fallback frontend URL:", fallbackUrl);
+    return fallbackUrl;
+  } catch (error) {
+    console.error("Error fetching frontend URL from database:", error);
+    const fallbackUrl =
+      Deno.env.get("FRONTEND_URL") ||
+      "https://mystifying-torvalds4-r9r87.view-3.tempo-dev.app";
+    console.log("Using fallback frontend URL due to error:", fallbackUrl);
+    return fallbackUrl;
+  }
 }
 
 function logConfig(context: string): void {
@@ -92,7 +129,13 @@ Deno.serve(async (req) => {
   const stripe = new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" });
 
   try {
-    const frontendUrl = getFrontendBaseUrl();
+    const frontendUrl = await getFrontendBaseUrl();
+
+    // Generate enhanced security tokens
+    const securityToken = crypto.randomUUID();
+    const sessionToken = crypto.randomUUID();
+    const timestamp = Date.now().toString();
+    const expiryTime = Date.now() + 15 * 60 * 1000; // 15 minutes
 
     const checkoutSession = await stripe.checkout.sessions.create({
       mode: "subscription",
@@ -103,17 +146,25 @@ Deno.serve(async (req) => {
           quantity: 1,
         },
       ],
-      success_url: `${frontendUrl}/success`,
-      cancel_url: `${frontendUrl}/plan-selection`,
+      success_url: `${frontendUrl}/success?session_id={CHECKOUT_SESSION_ID}&security_token=${securityToken}&session_token=${sessionToken}&redirect_to_dashboard=true`,
+      cancel_url: `${frontendUrl}/plan-selection?cancelled=true&reason=user_cancelled`,
       customer_email: userEmail,
       metadata: {
         user_id: userId,
         plan_id: planId,
+        security_token: securityToken,
+        session_token: sessionToken,
+        created_timestamp: timestamp,
+        expiry_time: expiryTime.toString(),
+        frontend_url: frontendUrl,
       },
       subscription_data: {
         metadata: {
           user_id: userId,
           plan_id: planId,
+          security_token: securityToken,
+          session_token: sessionToken,
+          created_timestamp: timestamp,
         },
       },
       automatic_tax: { enabled: false },
@@ -122,6 +173,7 @@ Deno.serve(async (req) => {
       phone_number_collection: {
         enabled: true,
       },
+      expires_at: Math.floor(Date.now() / 1000) + 30 * 60, // 30 minutes expiry
     });
 
     console.log("Checkout session created successfully:", {

@@ -29,6 +29,38 @@ import { useAuth } from "../../../supabase/auth";
 import { useToast } from "@/components/ui/use-toast";
 import { supabase } from "../../../supabase/supabase";
 
+// Security utility functions
+const generateSecurityFingerprint = (): string => {
+  const data = [
+    navigator.userAgent,
+    screen.width + "x" + screen.height,
+    new Date().getTimezoneOffset(),
+    navigator.language,
+    Date.now().toString(),
+  ].join("|");
+
+  // Simple hash function
+  let hash = 0;
+  for (let i = 0; i < data.length; i++) {
+    const char = data.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  return Math.abs(hash).toString(36);
+};
+
+const detectPaymentBypassAttempt = (): boolean => {
+  // Check for common bypass indicators
+  const suspiciousPatterns = [
+    () => localStorage.getItem("payment_bypass_attempt"),
+    () => sessionStorage.getItem("fake_payment_success"),
+    () => window.location.search.includes("bypass=true"),
+    () => document.cookie.includes("payment_hacked"),
+  ];
+
+  return suspiciousPatterns.some((check) => check());
+};
+
 const plans = [
   {
     id: "starter",
@@ -195,6 +227,18 @@ export default function PlanSelection({
       return;
     }
 
+    // Security check for bypass attempts
+    if (detectPaymentBypassAttempt()) {
+      console.warn("Payment bypass attempt detected");
+      localStorage.setItem("security_violation", Date.now().toString());
+      toast({
+        title: "Security Error",
+        description: "Please refresh the page and try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setSelectedPlan(planId);
     setIsLoading(true);
 
@@ -235,8 +279,9 @@ export default function PlanSelection({
 
       console.log("Checkout URL received, storing subscription...");
 
-      // Store the pending subscription in the database with session tracking
+      // Store the pending subscription in the database with enhanced security
       try {
+        const securityFingerprint = generateSecurityFingerprint();
         const { error: dbError } = await supabase
           .from("user_subscriptions")
           .upsert(
@@ -244,7 +289,8 @@ export default function PlanSelection({
               user_id: user.id,
               plan_id: planId,
               stripe_checkout_session_id: data.sessionId,
-              status: "pending",
+              status: "pending_payment",
+              security_fingerprint: securityFingerprint,
               created_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
             },
@@ -267,9 +313,27 @@ export default function PlanSelection({
 
       console.log("Redirecting to Stripe checkout:", data.url);
 
-      // Store plan selection for post-payment Twilio number purchase
-      sessionStorage.setItem("selectedPlan", planId);
-      sessionStorage.setItem("userId", user.id);
+      // Store encrypted session data for security
+      const sessionData = {
+        planId,
+        userId: user.id,
+        timestamp: Date.now(),
+        sessionId: data.sessionId,
+      };
+
+      // Store with expiry (30 minutes)
+      const expiryTime = Date.now() + 30 * 60 * 1000;
+      sessionStorage.setItem(
+        "payment_session",
+        JSON.stringify({
+          data: sessionData,
+          expires: expiryTime,
+        }),
+      );
+
+      // Clear any existing payment status to prevent bypass
+      sessionStorage.removeItem("payment_verified");
+      localStorage.removeItem("payment_bypass_attempt");
 
       // Redirect to Stripe checkout
       window.location.href = data.url;

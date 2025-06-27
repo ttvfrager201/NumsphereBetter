@@ -4,11 +4,9 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 // CORS headers
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-requested-with",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+  "Access-Control-Allow-Headers": "*",
+  "Access-Control-Allow-Methods": "*",
   "Access-Control-Max-Age": "86400",
-  "Access-Control-Allow-Credentials": "false",
 };
 
 // Database types
@@ -1205,7 +1203,7 @@ async function handlePaymentSuccess(invoice: any, requestId: string) {
   }
 }
 
-// Handle payment failures
+// Handle payment failures with automatic refunds
 async function handlePaymentFailed(invoice: any, requestId: string) {
   if (!invoice.subscription) {
     console.log(
@@ -1215,6 +1213,7 @@ async function handlePaymentFailed(invoice: any, requestId: string) {
   }
 
   const supabase = createSupabaseClient();
+  const stripe = createStripeClient();
   const timestamp = new Date().toISOString();
 
   try {
@@ -1224,7 +1223,7 @@ async function handlePaymentFailed(invoice: any, requestId: string) {
 
     const { data, error: fetchError } = await supabase
       .from("user_subscriptions")
-      .select("user_id, plan_id")
+      .select("user_id, plan_id, stripe_customer_id")
       .eq("stripe_subscription_id", invoice.subscription)
       .single();
 
@@ -1235,14 +1234,81 @@ async function handlePaymentFailed(invoice: any, requestId: string) {
 
     if (data?.user_id) {
       console.log(
-        `[payment_failed] Recording payment failure for user ${data.user_id}`,
+        `[payment_failed] Processing automatic refund for user ${data.user_id}`,
       );
+
+      // Automatic refund logic
+      try {
+        if (invoice.charge && invoice.amount_paid > 0) {
+          console.log(
+            `[payment_failed] Initiating refund for charge ${invoice.charge}`,
+          );
+
+          const refund = await stripe.refunds.create({
+            charge: invoice.charge,
+            amount: invoice.amount_paid,
+            reason: "requested_by_customer",
+            metadata: {
+              user_id: data.user_id,
+              subscription_id: invoice.subscription,
+              auto_refund: "payment_failed",
+              processed_at: timestamp,
+            },
+          });
+
+          console.log(`[payment_failed] Refund created successfully:`, {
+            refund_id: refund.id,
+            amount: refund.amount,
+            status: refund.status,
+          });
+
+          // Log the refund in database
+          await supabase.from("payment_security_log").insert({
+            user_id: data.user_id,
+            event_type: "automatic_refund",
+            payload: {
+              refund_id: refund.id,
+              original_charge: invoice.charge,
+              amount: refund.amount,
+              reason: "payment_failed",
+            },
+            status: "completed",
+            created_at: timestamp,
+          });
+        }
+      } catch (refundError) {
+        console.error(`[payment_failed] Refund failed:`, refundError);
+
+        // Log refund failure
+        await supabase.from("payment_security_log").insert({
+          user_id: data.user_id,
+          event_type: "refund_failed",
+          payload: {
+            error: refundError.message,
+            charge: invoice.charge,
+            amount: invoice.amount_paid,
+          },
+          status: "failed",
+          error_message: refundError.message,
+          created_at: timestamp,
+        });
+      }
+
+      // Update subscription status to failed
+      await supabase
+        .from("user_subscriptions")
+        .update({
+          status: "payment_failed",
+          updated_at: timestamp,
+        })
+        .eq("stripe_subscription_id", invoice.subscription);
 
       // Send payment failure notification
       await sendSubscriptionNotification(
         data.user_id,
-        "payment_failed",
+        "payment_failed_with_refund",
         data.plan_id,
+        requestId,
       );
     }
   } catch (error) {
@@ -1434,16 +1500,63 @@ async function handleSubscriptionPendingUpdate(
   }
 }
 
-// Enhanced notification system with security logging
+// Enhanced notification system with email confirmations
 async function sendSubscriptionNotification(
   userId: string,
   eventType: string,
   planId: string,
-  requestId: string,
+  requestId: string = crypto.randomUUID(),
 ) {
   try {
     console.log(
       `[notification] [${requestId}] ${eventType} notification for user ${userId} on ${planId} plan`,
+    );
+
+    // Get user email and plan details
+    const supabase = createSupabaseClient();
+    const { data: userData } = await supabase
+      .from("users")
+      .select("email, full_name")
+      .eq("id", userId)
+      .single();
+
+    if (!userData?.email) {
+      console.warn(`[notification] No email found for user ${userId}`);
+      return;
+    }
+
+    // Plan details for email
+    const planDetails = {
+      starter: {
+        name: "Starter",
+        price: "$9",
+        features: "1 Virtual Phone Number, 500 Minutes/Month",
+      },
+      business: {
+        name: "Business",
+        price: "$29",
+        features: "5 Virtual Phone Numbers, 2,000 Minutes/Month",
+      },
+      enterprise: {
+        name: "Enterprise",
+        price: "$99",
+        features: "Unlimited Phone Numbers & Minutes",
+      },
+    };
+
+    const plan = planDetails[planId as keyof typeof planDetails] || {
+      name: planId,
+      price: "N/A",
+      features: "N/A",
+    };
+
+    // Send email based on event type
+    await sendEmail(
+      userData.email,
+      userData.full_name,
+      eventType,
+      plan,
+      requestId,
     );
 
     // Log security-relevant events
@@ -1458,19 +1571,177 @@ async function sendSubscriptionNotification(
       console.warn(
         `[security] [${requestId}] Security event: ${eventType} for user ${userId}`,
       );
-      // TODO: Send to security monitoring system
     }
-
-    // TODO: Implement comprehensive notification system
-    // - Email notifications via SendGrid/Resend
-    // - In-app notifications
-    // - SMS for critical events
-    // - Webhook notifications to customer systems
-    // - Slack/Discord notifications for admin events
   } catch (error) {
     console.error(
       `[notification] [${requestId}] Error sending ${eventType} notification:`,
       error,
     );
+  }
+}
+
+// Email sending function
+async function sendEmail(
+  email: string,
+  fullName: string,
+  eventType: string,
+  plan: any,
+  requestId: string,
+) {
+  try {
+    const name = fullName || email.split("@")[0];
+    let subject = "";
+    let htmlContent = "";
+
+    const baseStyle = `
+      <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+        .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
+        .plan-details { background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #667eea; }
+        .footer { text-align: center; margin-top: 30px; color: #666; font-size: 14px; }
+        .button { display: inline-block; background: #667eea; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 10px 0; }
+      </style>
+    `;
+
+    switch (eventType) {
+      case "subscription_created":
+      case "payment_succeeded":
+        subject = `🎉 Welcome to NumSphere ${plan.name} Plan!`;
+        htmlContent = `
+          ${baseStyle}
+          <div class="container">
+            <div class="header">
+              <h1>🎉 Payment Successful!</h1>
+              <p>Welcome to NumSphere, ${name}!</p>
+            </div>
+            <div class="content">
+              <h2>Your subscription is now active</h2>
+              <p>Thank you for choosing NumSphere! Your payment has been processed successfully.</p>
+              
+              <div class="plan-details">
+                <h3>📋 Plan Details</h3>
+                <p><strong>Plan:</strong> ${plan.name}</p>
+                <p><strong>Price:</strong> ${plan.price}/month</p>
+                <p><strong>Features:</strong> ${plan.features}</p>
+              </div>
+              
+              <p>You can now access your dashboard and start setting up your virtual phone numbers!</p>
+              
+              <a href="https://mystifying-torvalds4-r9r87.view-3.tempo-dev.app/dashboard" class="button">
+                Access Dashboard
+              </a>
+              
+              <h3>🚀 Next Steps:</h3>
+              <ul>
+                <li>Choose your first virtual phone number</li>
+                <li>Set up call flows</li>
+                <li>Configure voicemail settings</li>
+              </ul>
+            </div>
+            <div class="footer">
+              <p>Need help? Contact us at support@numsphere.com</p>
+              <p>NumSphere - Your Virtual Phone Solution</p>
+            </div>
+          </div>
+        `;
+        break;
+
+      case "payment_failed_with_refund":
+        subject = `⚠️ Payment Failed - Automatic Refund Processed`;
+        htmlContent = `
+          ${baseStyle}
+          <div class="container">
+            <div class="header" style="background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);">
+              <h1>⚠️ Payment Issue</h1>
+              <p>We encountered a problem with your payment</p>
+            </div>
+            <div class="content">
+              <h2>Automatic Refund Processed</h2>
+              <p>Hi ${name},</p>
+              <p>We're sorry, but there was an issue processing your payment for the ${plan.name} plan (${plan.price}/month).</p>
+              
+              <div class="plan-details">
+                <h3>🔄 What we've done:</h3>
+                <ul>
+                  <li>Automatically processed a full refund</li>
+                  <li>No charges will appear on your statement</li>
+                  <li>Your account remains secure</li>
+                </ul>
+              </div>
+              
+              <p>You can try subscribing again with a different payment method.</p>
+              
+              <a href="https://mystifying-torvalds4-r9r87.view-3.tempo-dev.app/plan-selection" class="button">
+                Try Again
+              </a>
+            </div>
+            <div class="footer">
+              <p>Questions? Contact support@numsphere.com</p>
+            </div>
+          </div>
+        `;
+        break;
+
+      case "subscription_canceled":
+        subject = `📋 Subscription Canceled - Access Until Period End`;
+        htmlContent = `
+          ${baseStyle}
+          <div class="container">
+            <div class="header" style="background: linear-gradient(135deg, #ffa726 0%, #ff7043 100%);">
+              <h1>📋 Subscription Canceled</h1>
+              <p>Your subscription has been canceled</p>
+            </div>
+            <div class="content">
+              <h2>We're sorry to see you go, ${name}</h2>
+              <p>Your ${plan.name} plan subscription has been canceled as requested.</p>
+              
+              <div class="plan-details">
+                <h3>📅 Important Information:</h3>
+                <ul>
+                  <li>You'll retain access until the end of your current billing period</li>
+                  <li>No future charges will be made</li>
+                  <li>Your data will be preserved for 30 days</li>
+                </ul>
+              </div>
+              
+              <p>You can reactivate your subscription anytime before your access expires.</p>
+              
+              <a href="https://mystifying-torvalds4-r9r87.view-3.tempo-dev.app/plan-selection" class="button">
+                Reactivate Subscription
+              </a>
+            </div>
+            <div class="footer">
+              <p>We'd love your feedback: support@numsphere.com</p>
+            </div>
+          </div>
+        `;
+        break;
+
+      default:
+        console.log(`[email] No email template for event: ${eventType}`);
+        return;
+    }
+
+    // Log email sending (in production, integrate with email service like Resend/SendGrid)
+    console.log(`[email] [${requestId}] Sending email to ${email}:`, {
+      subject,
+      eventType,
+      planName: plan.name,
+      planPrice: plan.price,
+    });
+
+    // TODO: Replace with actual email service integration
+    // Example with Resend:
+    // const resend = new Resend(process.env.RESEND_API_KEY);
+    // await resend.emails.send({
+    //   from: 'NumSphere <noreply@numsphere.com>',
+    //   to: email,
+    //   subject: subject,
+    //   html: htmlContent
+    // });
+  } catch (error) {
+    console.error(`[email] [${requestId}] Error sending email:`, error);
   }
 }

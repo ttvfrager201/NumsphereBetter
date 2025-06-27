@@ -42,6 +42,39 @@ export type Database = {
         }
         Relationships: []
       }
+      app_settings: {
+        Row: {
+          created_at: string | null
+          description: string | null
+          frontend_url: string | null
+          id: string
+          is_active: boolean | null
+          key: string
+          updated_at: string | null
+          value: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          description?: string | null
+          frontend_url?: string | null
+          id?: string
+          is_active?: boolean | null
+          key: string
+          updated_at?: string | null
+          value?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          description?: string | null
+          frontend_url?: string | null
+          id?: string
+          is_active?: boolean | null
+          key?: string
+          updated_at?: string | null
+          value?: string | null
+        }
+        Relationships: []
+      }
       call_flows: {
         Row: {
           created_at: string | null
@@ -152,6 +185,48 @@ export type Database = {
           last_attempt_at?: string | null
           updated_at?: string | null
           user_agent?: string | null
+        }
+        Relationships: []
+      }
+      payment_security_log: {
+        Row: {
+          action_taken: string | null
+          created_at: string | null
+          event_type: string
+          id: string
+          ip_address: unknown | null
+          risk_score: number | null
+          security_fingerprint: string | null
+          session_id: string | null
+          suspicious_indicators: Json | null
+          user_agent: string | null
+          user_id: string | null
+        }
+        Insert: {
+          action_taken?: string | null
+          created_at?: string | null
+          event_type: string
+          id?: string
+          ip_address?: unknown | null
+          risk_score?: number | null
+          security_fingerprint?: string | null
+          session_id?: string | null
+          suspicious_indicators?: Json | null
+          user_agent?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          action_taken?: string | null
+          created_at?: string | null
+          event_type?: string
+          id?: string
+          ip_address?: unknown | null
+          risk_score?: number | null
+          security_fingerprint?: string | null
+          session_id?: string | null
+          suspicious_indicators?: Json | null
+          user_agent?: string | null
+          user_id?: string | null
         }
         Relationships: []
       }
@@ -338,7 +413,10 @@ export type Database = {
           id: string
           last_payment_date: string | null
           last_updated_by: string | null
+          last_verification_attempt: string | null
+          payment_verified_at: string | null
           plan_id: string
+          security_fingerprint: string | null
           status: string | null
           stripe_checkout_session_id: string | null
           stripe_customer_id: string | null
@@ -346,6 +424,7 @@ export type Database = {
           trial_end: string | null
           updated_at: string | null
           user_id: string | null
+          verification_attempts: number | null
         }
         Insert: {
           cancel_at_period_end?: boolean | null
@@ -356,7 +435,10 @@ export type Database = {
           id?: string
           last_payment_date?: string | null
           last_updated_by?: string | null
+          last_verification_attempt?: string | null
+          payment_verified_at?: string | null
           plan_id: string
+          security_fingerprint?: string | null
           status?: string | null
           stripe_checkout_session_id?: string | null
           stripe_customer_id?: string | null
@@ -364,6 +446,7 @@ export type Database = {
           trial_end?: string | null
           updated_at?: string | null
           user_id?: string | null
+          verification_attempts?: number | null
         }
         Update: {
           cancel_at_period_end?: boolean | null
@@ -374,7 +457,10 @@ export type Database = {
           id?: string
           last_payment_date?: string | null
           last_updated_by?: string | null
+          last_verification_attempt?: string | null
+          payment_verified_at?: string | null
           plan_id?: string
+          security_fingerprint?: string | null
           status?: string | null
           stripe_checkout_session_id?: string | null
           stripe_customer_id?: string | null
@@ -382,6 +468,7 @@ export type Database = {
           trial_end?: string | null
           updated_at?: string | null
           user_id?: string | null
+          verification_attempts?: number | null
         }
         Relationships: []
       }
@@ -480,6 +567,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      auto_cleanup_subscriptions: {
+        Args: Record<PropertyKey, never>
+        Returns: undefined
+      }
       check_account_lockout: {
         Args: { user_email: string; is_failed_attempt?: boolean }
         Returns: Json
@@ -498,9 +589,31 @@ export type Database = {
         }
         Returns: Json
       }
+      cleanup_expired_sessions: {
+        Args: Record<PropertyKey, never>
+        Returns: undefined
+      }
       clear_failed_login_attempts: {
         Args: { p_email: string; p_ip_address: unknown }
         Returns: undefined
+      }
+      detect_payment_anomalies: {
+        Args: { p_user_id: string; p_session_id?: string }
+        Returns: Json
+      }
+      log_payment_security_event: {
+        Args: {
+          p_user_id: string
+          p_session_id: string
+          p_event_type: string
+          p_security_fingerprint?: string
+          p_ip_address?: unknown
+          p_user_agent?: string
+          p_suspicious_indicators?: Json
+          p_risk_score?: number
+          p_action_taken?: string
+        }
+        Returns: string
       }
       log_security_event: {
         Args: {
@@ -528,6 +641,18 @@ export type Database = {
           p_metadata?: Json
         }
         Returns: string
+      }
+      validate_payment_session: {
+        Args: {
+          p_user_id: string
+          p_session_id: string
+          p_security_fingerprint?: string
+        }
+        Returns: Json
+      }
+      validate_subscription_integrity: {
+        Args: { p_user_id: string; p_stripe_subscription_id?: string }
+        Returns: Json
       }
     }
     Enums: {

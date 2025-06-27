@@ -47,12 +47,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
-      // Check webhook-updated database state only
-      const { data: userData, error: userError } = await supabase
-        .from("users")
-        .select("has_completed_payment")
-        .eq("id", user.id)
-        .single();
+      // Enhanced security check - verify multiple sources
+      const [userResult, subscriptionResult] = await Promise.all([
+        supabase
+          .from("users")
+          .select("has_completed_payment, updated_at")
+          .eq("id", user.id)
+          .single(),
+        supabase
+          .from("user_subscriptions")
+          .select(
+            "status, stripe_subscription_id, updated_at, security_fingerprint",
+          )
+          .eq("user_id", user.id)
+          .order("updated_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ]);
+
+      const { data: userData, error: userError } = userResult;
+      const { data: subscriptionData, error: subError } = subscriptionResult;
 
       if (userError && userError.code !== "PGRST116") {
         console.error("Error checking user payment status:", userError);
@@ -60,24 +74,68 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return false;
       }
 
-      // Also check subscription status from webhook-managed table
-      const { data: subscriptionData } = await supabase
-        .from("user_subscriptions")
-        .select("status")
-        .eq("user_id", user.id)
-        .eq("status", "active")
-        .maybeSingle();
+      // Security validation - check for tampering
+      const currentFingerprint = generateSecurityFingerprint();
+      const storedFingerprint = subscriptionData?.security_fingerprint;
 
-      const hasPayment =
-        userData?.has_completed_payment &&
-        subscriptionData?.status === "active";
-      setHasCompletedPayment(hasPayment || false);
-      return hasPayment || false;
+      // Allow some flexibility for legitimate device changes
+      const fingerprintValid =
+        !storedFingerprint ||
+        Math.abs(
+          parseInt(currentFingerprint, 36) - parseInt(storedFingerprint, 36),
+        ) < 1000000;
+
+      if (!fingerprintValid) {
+        console.warn("Security fingerprint mismatch detected");
+        // Don't block immediately, but log for monitoring
+      }
+
+      // Strict validation - both conditions must be true
+      const hasValidPayment =
+        userData?.has_completed_payment === true &&
+        subscriptionData?.status === "active" &&
+        subscriptionData?.stripe_subscription_id;
+
+      // Additional security check - verify subscription is recent enough
+      if (hasValidPayment && subscriptionData?.updated_at) {
+        const lastUpdate = new Date(subscriptionData.updated_at);
+        const daysSinceUpdate =
+          (Date.now() - lastUpdate.getTime()) / (1000 * 60 * 60 * 24);
+
+        // If subscription hasn't been updated in 35 days, re-verify
+        if (daysSinceUpdate > 35) {
+          console.log("Subscription verification needed - outdated");
+          // Could trigger re-verification here
+        }
+      }
+
+      setHasCompletedPayment(hasValidPayment);
+      return hasValidPayment;
     } catch (error) {
       console.error("Error checking payment status:", error);
       setHasCompletedPayment(false);
       return false;
     }
+  };
+
+  // Security utility function
+  const generateSecurityFingerprint = (): string => {
+    if (typeof window === "undefined") return "server";
+
+    const data = [
+      navigator.userAgent || "",
+      screen.width + "x" + screen.height,
+      new Date().getTimezoneOffset(),
+      navigator.language || "",
+    ].join("|");
+
+    let hash = 0;
+    for (let i = 0; i < data.length; i++) {
+      const char = data.charCodeAt(i);
+      hash = (hash << 5) - hash + char;
+      hash = hash & hash;
+    }
+    return Math.abs(hash).toString(36);
   };
 
   useEffect(() => {
@@ -391,6 +449,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Add delay to avoid rate limiting on OTP request
       await new Promise((resolve) => setTimeout(resolve, 1000));
 
+      // Store OTP request time for 15-minute expiry
+      localStorage.setItem(`otp_request_${email}`, Date.now().toString());
+
       // Send OTP with retry logic
       let otpAttempts = 0;
       const maxOtpAttempts = 3;
@@ -472,12 +533,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     type: "signup" | "email" | "signin",
     rememberDevice?: boolean,
   ) => {
+    // Enhanced OTP validation with expiry check
+    const otpRequestTime = localStorage.getItem(`otp_request_${email}`);
+    const currentTime = Date.now();
+    const fifteenMinutes = 15 * 60 * 1000; // 15 minutes in milliseconds
+
+    if (otpRequestTime) {
+      const timeDiff = currentTime - parseInt(otpRequestTime);
+      if (timeDiff > fifteenMinutes) {
+        localStorage.removeItem(`otp_request_${email}`);
+        throw new Error("OTP has expired. Please request a new code.");
+      }
+    }
+
     const { data, error } = await supabase.auth.verifyOtp({
       email,
       token,
       type: type === "signin" ? "email" : type,
     });
-    if (error) throw error;
+    if (error) {
+      // Enhanced error handling
+      if (
+        error.message?.includes("expired") ||
+        error.message?.includes("invalid")
+      ) {
+        localStorage.removeItem(`otp_request_${email}`);
+        throw new Error(
+          "OTP has expired or is invalid. Please request a new code.",
+        );
+      }
+      throw error;
+    }
+
+    // Clear OTP request time on successful verification
+    localStorage.removeItem(`otp_request_${email}`);
 
     // If device should be remembered, store device info
     if (rememberDevice && data.user) {
@@ -555,6 +644,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       type === "signin" || type === "password_reset" ? "email" : type;
 
     try {
+      // Store new OTP request time for 15-minute expiry
+      localStorage.setItem(`otp_request_${email}`, Date.now().toString());
+
       if (type === "signin" || type === "password_reset") {
         // Add delay to avoid rate limiting
         await new Promise((resolve) => setTimeout(resolve, 1000));

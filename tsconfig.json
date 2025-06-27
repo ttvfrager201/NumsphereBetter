@@ -19,7 +19,7 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src", "supabase/auth.tsx", "supabase/supabase.ts"],
+  "include": ["src/**/*", "src/**/*.tsx", "src/**/*.ts"],
   "exclude": ["src/tempobook"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
