@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "@shared/cors.ts";
 import { Database } from "@shared/database.types.ts";
+import { getWebhookBaseUrl, logConfig } from "@shared/config.ts";
 
 // Rate limiting for number purchases
 const purchaseAttempts = new Map<
@@ -18,6 +19,9 @@ Deno.serve(async (req) => {
       headers: corsHeaders,
     });
   }
+
+  // Log configuration for debugging
+  logConfig("purchase-twilio-number", req);
 
   const startTime = Date.now();
   let requestData;
@@ -206,9 +210,21 @@ Deno.serve(async (req) => {
       "FriendlyName",
       `NumSphere - ${planId.charAt(0).toUpperCase() + planId.slice(1)} Plan`,
     );
-    // Use Supabase URL for webhook endpoints
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const baseWebhookUrl = `${supabaseUrl}/functions/v1`;
+    // Use dynamic webhook base URL
+    const baseWebhookUrl = getWebhookBaseUrl(req);
+
+    console.log(
+      `[purchase-twilio-number] Using webhook base URL: ${baseWebhookUrl}`,
+    );
+    console.log(
+      `[purchase-twilio-number] Voice webhook: ${baseWebhookUrl}/twilio-voice-webhook`,
+    );
+    console.log(
+      `[purchase-twilio-number] SMS webhook: ${baseWebhookUrl}/twilio-sms-webhook`,
+    );
+    console.log(
+      `[purchase-twilio-number] Status webhook: ${baseWebhookUrl}/twilio-status-webhook`,
+    );
 
     formData.append("VoiceUrl", `${baseWebhookUrl}/twilio-voice-webhook`);
     formData.append("SmsUrl", `${baseWebhookUrl}/twilio-sms-webhook`);

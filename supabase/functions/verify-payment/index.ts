@@ -2,6 +2,7 @@ import Stripe from "https://esm.sh/stripe@14.21.0";
 
 import { corsHeaders } from "@shared/cors.ts";
 import { createSupabaseClient } from "@shared/stripe-helpers.ts";
+import { logConfig } from "@shared/config.ts";
 
 Deno.serve(async (req) => {
   // Handle CORS preflight requests
@@ -11,6 +12,9 @@ Deno.serve(async (req) => {
       headers: corsHeaders,
     });
   }
+
+  // Log configuration for debugging
+  logConfig("verify-payment", req);
 
   let body;
   try {

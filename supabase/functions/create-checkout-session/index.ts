@@ -1,13 +1,12 @@
 import Stripe from "https://esm.sh/stripe@14.21.0";
+import { getFrontendBaseUrl, logConfig } from "@shared/config.ts";
+import { corsHeaders } from "@shared/cors.ts";
+
+// Remove the duplicate corsHeaders definition since we're importing it
 
 Deno.serve(async (req) => {
-  const corsHeaders = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers":
-      "authorization, x-client-info, apikey, content-type, x-requested-with",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Max-Age": "86400",
-  };
+  // Log configuration for debugging
+  logConfig("create-checkout-session", req);
 
   // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
@@ -79,9 +78,41 @@ Deno.serve(async (req) => {
   const stripe = new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" });
 
   try {
-    const origin =
-      req.headers.get("origin") ||
-      "https://strange-fermat5-yjnen.view-3.tempo-dev.app";
+    // Get the frontend base URL dynamically
+    const frontendUrl = getFrontendBaseUrl(req);
+
+    console.log(`[create-checkout-session] Using frontend URL: ${frontendUrl}`);
+    console.log(
+      `[create-checkout-session] Request origin: ${req.headers.get("origin")}`,
+    );
+    console.log(
+      `[create-checkout-session] Request referer: ${req.headers.get("referer")}`,
+    );
+    console.log(
+      `[create-checkout-session] Request host: ${req.headers.get("host")}`,
+    );
+    console.log(
+      `[create-checkout-session] SUPABASE_URL: ${Deno.env.get("SUPABASE_URL")}`,
+    );
+    console.log(
+      `[create-checkout-session] FRONTEND_URL: ${Deno.env.get("FRONTEND_URL")}`,
+    );
+    console.log(
+      `[create-checkout-session] VITE_APP_URL: ${Deno.env.get("VITE_APP_URL")}`,
+    );
+    console.log(
+      `[create-checkout-session] Creating checkout session for plan: ${planId}, user: ${userId}`,
+    );
+    console.log(
+      `[create-checkout-session] Price ID: ${planPriceMap[planId as keyof typeof planPriceMap]}`,
+    );
+    console.log(`[create-checkout-session] Customer email: ${userEmail}`);
+    console.log(
+      `[create-checkout-session] Success URL: ${frontendUrl}/success`,
+    );
+    console.log(
+      `[create-checkout-session] Cancel URL: ${frontendUrl}/plan-selection`,
+    );
 
     const checkoutSession = await stripe.checkout.sessions.create({
       mode: "subscription",
@@ -92,8 +123,8 @@ Deno.serve(async (req) => {
           quantity: 1,
         },
       ],
-      success_url: `${origin}/success`,
-      cancel_url: `${origin}/plan-selection`,
+      success_url: `${frontendUrl}/success`,
+      cancel_url: `${frontendUrl}/plan-selection`,
       customer_email: userEmail,
       metadata: {
         user_id: userId,
