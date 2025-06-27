@@ -1,7 +1,139 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { corsHeaders } from "@shared/cors.ts";
-import { Database } from "@shared/database.types.ts";
-import { getWebhookBaseUrl, logConfig } from "@shared/config.ts";
+
+// CORS headers
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-requested-with",
+  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+  "Access-Control-Max-Age": "86400",
+  "Access-Control-Allow-Credentials": "false",
+};
+
+// Configuration utilities
+function getWebhookBaseUrl(): string {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  if (!supabaseUrl) {
+    console.warn("SUPABASE_URL not found for webhook URL");
+    return "https://default-supabase-url.supabase.co/functions/v1";
+  }
+  return `${supabaseUrl}/functions/v1`;
+}
+
+function logConfig(context: string): void {
+  console.log(`[${context}] Configuration:`, {
+    supabase_url: Deno.env.get("SUPABASE_URL"),
+    frontend_url: Deno.env.get("FRONTEND_URL"),
+    vite_app_url: Deno.env.get("VITE_APP_URL"),
+    deployment_url: Deno.env.get("DEPLOYMENT_URL"),
+  });
+}
+
+// Database types
+type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[];
+
+type Database = {
+  public: {
+    Tables: {
+      user_subscriptions: {
+        Row: {
+          created_at: string | null;
+          id: string;
+          plan_id: string;
+          status: string | null;
+          stripe_checkout_session_id: string | null;
+          stripe_customer_id: string | null;
+          stripe_subscription_id: string | null;
+          updated_at: string | null;
+          user_id: string | null;
+        };
+        Insert: {
+          created_at?: string | null;
+          id?: string;
+          plan_id: string;
+          status?: string | null;
+          stripe_checkout_session_id?: string | null;
+          stripe_customer_id?: string | null;
+          stripe_subscription_id?: string | null;
+          updated_at?: string | null;
+          user_id?: string | null;
+        };
+        Update: {
+          created_at?: string | null;
+          id?: string;
+          plan_id?: string;
+          status?: string | null;
+          stripe_checkout_session_id?: string | null;
+          stripe_customer_id?: string | null;
+          stripe_subscription_id?: string | null;
+          updated_at?: string | null;
+          user_id?: string | null;
+        };
+        Relationships: [];
+      };
+      twilio_numbers: {
+        Row: {
+          id: string;
+          user_id: string | null;
+          phone_number: string;
+          twilio_sid: string;
+          friendly_name: string | null;
+          minutes_allocated: number | null;
+          minutes_used: number | null;
+          plan_id: string;
+          status: string | null;
+          created_at: string | null;
+          updated_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          user_id?: string | null;
+          phone_number: string;
+          twilio_sid: string;
+          friendly_name?: string | null;
+          minutes_allocated?: number | null;
+          minutes_used?: number | null;
+          plan_id: string;
+          status?: string | null;
+          created_at?: string | null;
+          updated_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          user_id?: string | null;
+          phone_number?: string;
+          twilio_sid?: string;
+          friendly_name?: string | null;
+          minutes_allocated?: number | null;
+          minutes_used?: number | null;
+          plan_id?: string;
+          status?: string | null;
+          created_at?: string | null;
+          updated_at?: string | null;
+        };
+        Relationships: [];
+      };
+    };
+    Views: {
+      [_ in never]: never;
+    };
+    Functions: {
+      [_ in never]: never;
+    };
+    Enums: {
+      [_ in never]: never;
+    };
+    CompositeTypes: {
+      [_ in never]: never;
+    };
+  };
+};
 
 // Rate limiting for number purchases
 const purchaseAttempts = new Map<

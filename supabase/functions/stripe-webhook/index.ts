@@ -1,14 +1,381 @@
-import { corsHeaders } from "@shared/cors.ts";
-import {
-  verifyStripeWebhook,
-  createSupabaseClient,
-} from "@shared/stripe-helpers.ts";
-import {
-  validateEnvironment,
-  logSecurityEvent,
-  detectSuspiciousActivity,
-  webhookRateLimiter,
-} from "@shared/security.ts";
+import Stripe from "https://esm.sh/stripe@14.21.0";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+// CORS headers
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-requested-with",
+  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+  "Access-Control-Max-Age": "86400",
+  "Access-Control-Allow-Credentials": "false",
+};
+
+// Database types
+type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[];
+
+type Database = {
+  public: {
+    Tables: {
+      user_subscriptions: {
+        Row: {
+          created_at: string | null;
+          id: string;
+          plan_id: string;
+          status: string | null;
+          stripe_checkout_session_id: string | null;
+          stripe_customer_id: string | null;
+          stripe_subscription_id: string | null;
+          updated_at: string | null;
+          user_id: string | null;
+        };
+        Insert: {
+          created_at?: string | null;
+          id?: string;
+          plan_id: string;
+          status?: string | null;
+          stripe_checkout_session_id?: string | null;
+          stripe_customer_id?: string | null;
+          stripe_subscription_id?: string | null;
+          updated_at?: string | null;
+          user_id?: string | null;
+        };
+        Update: {
+          created_at?: string | null;
+          id?: string;
+          plan_id?: string;
+          status?: string | null;
+          stripe_checkout_session_id?: string | null;
+          stripe_customer_id?: string | null;
+          stripe_subscription_id?: string | null;
+          updated_at?: string | null;
+          user_id?: string | null;
+        };
+        Relationships: [];
+      };
+      users: {
+        Row: {
+          avatar_url: string | null;
+          created_at: string;
+          email: string | null;
+          full_name: string | null;
+          has_completed_payment: boolean | null;
+          id: string;
+          image: string | null;
+          name: string | null;
+          token_identifier: string;
+          updated_at: string | null;
+          user_id: string | null;
+          requires_otp_verification: boolean | null;
+          last_otp_verification: string | null;
+        };
+        Insert: {
+          avatar_url?: string | null;
+          created_at?: string;
+          email?: string | null;
+          full_name?: string | null;
+          has_completed_payment?: boolean | null;
+          id: string;
+          image?: string | null;
+          name?: string | null;
+          token_identifier: string;
+          updated_at?: string | null;
+          user_id?: string | null;
+          requires_otp_verification?: boolean | null;
+          last_otp_verification?: string | null;
+        };
+        Update: {
+          avatar_url?: string | null;
+          created_at?: string;
+          email?: string | null;
+          full_name?: string | null;
+          has_completed_payment?: boolean | null;
+          id?: string;
+          image?: string | null;
+          name?: string | null;
+          token_identifier?: string;
+          updated_at?: string | null;
+          user_id?: string | null;
+          requires_otp_verification?: boolean | null;
+          last_otp_verification?: string | null;
+        };
+        Relationships: [];
+      };
+      webhook_events_log: {
+        Row: {
+          id: string;
+          event_id: string;
+          event_type: string;
+          source: string;
+          status: string;
+          payload: Json;
+          error_message: string | null;
+          processing_time_ms: number | null;
+          created_at: string;
+          updated_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          event_id: string;
+          event_type: string;
+          source: string;
+          status: string;
+          payload: Json;
+          error_message?: string | null;
+          processing_time_ms?: number | null;
+          created_at: string;
+          updated_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          event_id?: string;
+          event_type?: string;
+          source?: string;
+          status?: string;
+          payload?: Json;
+          error_message?: string | null;
+          processing_time_ms?: number | null;
+          created_at?: string;
+          updated_at?: string | null;
+        };
+        Relationships: [];
+      };
+    };
+    Views: {
+      [_ in never]: never;
+    };
+    Functions: {
+      [_ in never]: never;
+    };
+    Enums: {
+      [_ in never]: never;
+    };
+    CompositeTypes: {
+      [_ in never]: never;
+    };
+  };
+};
+
+// Stripe helpers
+function createStripeClient(): Stripe {
+  const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
+  if (!stripeSecretKey) {
+    throw new Error("Missing STRIPE_SECRET_KEY environment variable");
+  }
+  return new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" });
+}
+
+function createSupabaseClient() {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_KEY");
+
+  if (!supabaseUrl || !supabaseServiceKey) {
+    throw new Error("Missing Supabase environment variables");
+  }
+
+  return createClient<Database>(supabaseUrl, supabaseServiceKey);
+}
+
+function verifyStripeWebhook(request: Request, body: string): Stripe.Event {
+  const stripe = createStripeClient();
+  const webhookSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET");
+
+  if (!webhookSecret) {
+    throw new Error("Missing STRIPE_WEBHOOK_SECRET environment variable");
+  }
+
+  const signature = request.headers.get("stripe-signature");
+  if (!signature) {
+    throw new Error("Missing stripe-signature header");
+  }
+
+  // Enhanced validation
+  if (body.length > 1024 * 1024) {
+    // 1MB limit
+    throw new Error("Webhook payload too large");
+  }
+
+  try {
+    const event = stripe.webhooks.constructEvent(
+      body,
+      signature,
+      webhookSecret,
+      300,
+    ); // 5 minute tolerance
+
+    // Additional validation
+    if (!event.id || !event.type || !event.created) {
+      throw new Error("Invalid webhook event structure");
+    }
+
+    // Check event age (reject events older than 1 hour)
+    const eventAge = Date.now() / 1000 - event.created;
+    if (eventAge > 3600) {
+      throw new Error(`Webhook event too old: ${eventAge}s`);
+    }
+
+    return event;
+  } catch (err) {
+    console.error("Webhook signature verification failed:", {
+      error: err.message,
+      signature: signature.substring(0, 20) + "...", // Log partial signature for debugging
+      bodyLength: body.length,
+      timestamp: new Date().toISOString(),
+    });
+    throw new Error(`Webhook signature verification failed: ${err.message}`);
+  }
+}
+
+// Security utilities
+function validateEnvironment(): { valid: boolean; missing: string[] } {
+  const required = [
+    "SUPABASE_URL",
+    "SUPABASE_SERVICE_KEY",
+    "STRIPE_SECRET_KEY",
+    "STRIPE_WEBHOOK_SECRET",
+  ];
+
+  const missing = required.filter((key) => !Deno.env.get(key));
+
+  return {
+    valid: missing.length === 0,
+    missing,
+  };
+}
+
+function logSecurityEvent(
+  event: string,
+  details: Record<string, any>,
+  severity: "low" | "medium" | "high" | "critical" = "medium",
+): void {
+  const logEntry = {
+    timestamp: new Date().toISOString(),
+    event,
+    severity,
+    details: {
+      ...details,
+      // Remove sensitive data
+      password: details.password ? "[REDACTED]" : undefined,
+      token: details.token ? "[REDACTED]" : undefined,
+      secret: details.secret ? "[REDACTED]" : undefined,
+    },
+    source: "numsphere-security",
+  };
+
+  if (severity === "critical" || severity === "high") {
+    console.error("[SECURITY]", JSON.stringify(logEntry));
+  } else {
+    console.warn("[SECURITY]", JSON.stringify(logEntry));
+  }
+}
+
+function detectSuspiciousActivity(request: {
+  ip?: string;
+  userAgent?: string;
+  path?: string;
+  method?: string;
+  body?: any;
+}): { suspicious: boolean; reasons: string[] } {
+  const reasons: string[] = [];
+
+  // Check for common attack patterns
+  const suspiciousPatterns = [
+    /union.*select/i,
+    /script.*alert/i,
+    /<script/i,
+    /javascript:/i,
+    /eval\(/i,
+    /document\.cookie/i,
+    /\.\.\/\.\.\/\.\./,
+    /etc\/passwd/i,
+    /cmd\.exe/i,
+    /powershell/i,
+  ];
+
+  const checkString = JSON.stringify(request.body || "") + (request.path || "");
+
+  for (const pattern of suspiciousPatterns) {
+    if (pattern.test(checkString)) {
+      reasons.push(`Suspicious pattern detected: ${pattern.source}`);
+    }
+  }
+
+  // Check user agent
+  if (request.userAgent) {
+    const suspiciousAgents = [
+      /sqlmap/i,
+      /nikto/i,
+      /nmap/i,
+      /burp/i,
+      /scanner/i,
+      /bot.*attack/i,
+    ];
+
+    for (const agent of suspiciousAgents) {
+      if (agent.test(request.userAgent)) {
+        reasons.push(`Suspicious user agent: ${request.userAgent}`);
+      }
+    }
+  }
+
+  return {
+    suspicious: reasons.length > 0,
+    reasons,
+  };
+}
+
+// Rate limiting implementation
+class RateLimiter {
+  private requests = new Map<string, { count: number; resetTime: number }>();
+  private readonly maxRequests: number;
+  private readonly windowMs: number;
+
+  constructor(maxRequests: number = 100, windowMs: number = 60000) {
+    this.maxRequests = maxRequests;
+    this.windowMs = windowMs;
+
+    // Cleanup old entries every minute
+    setInterval(() => this.cleanup(), 60000);
+  }
+
+  isAllowed(identifier: string): boolean {
+    const now = Date.now();
+    const record = this.requests.get(identifier);
+
+    if (!record || now > record.resetTime) {
+      this.requests.set(identifier, {
+        count: 1,
+        resetTime: now + this.windowMs,
+      });
+      return true;
+    }
+
+    if (record.count >= this.maxRequests) {
+      return false;
+    }
+
+    record.count++;
+    return true;
+  }
+
+  private cleanup(): void {
+    const now = Date.now();
+    for (const [key, record] of this.requests.entries()) {
+      if (now > record.resetTime) {
+        this.requests.delete(key);
+      }
+    }
+  }
+}
+
+// Export singleton rate limiter instances
+const webhookRateLimiter = new RateLimiter(50, 60000); // 50 requests per minute
 
 // Store processed events to prevent duplicate processing with better memory management
 const processedEvents = new Map<

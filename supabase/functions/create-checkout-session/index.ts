@@ -1,24 +1,36 @@
 import Stripe from "https://esm.sh/stripe@14.21.0";
-import { getFrontendBaseUrl, logConfig } from "../_shared/config.ts";
+
+// CORS headers
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+};
+
+// Configuration utilities
+function getFrontendBaseUrl(): string {
+  return "https://boring-banach8-97srj.view-3.tempo-dev.app";
+}
+
+function logConfig(context: string): void {
+  console.log(`[${context}] Configuration:`, {
+    supabase_url: Deno.env.get("SUPABASE_URL"),
+    frontend_url: Deno.env.get("FRONTEND_URL"),
+    vite_app_url: Deno.env.get("VITE_APP_URL"),
+    deployment_url: Deno.env.get("DEPLOYMENT_URL"),
+    frontend_base_url: getFrontendBaseUrl(),
+  });
+}
 
 Deno.serve(async (req) => {
-  // Define CORS headers directly in the function
-  const corsHeaders = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers":
-      "authorization, x-client-info, apikey, content-type, x-requested-with",
-    "Access-Control-Allow-Methods": "POST, GET, OPTIONS, PUT, DELETE",
-    "Access-Control-Max-Age": "86400",
-  };
-
   // Log configuration for debugging
   logConfig("create-checkout-session");
 
   // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
-    return new Response(null, {
-      status: 204,
+    return new Response("ok", {
       headers: corsHeaders,
+      status: 200,
     });
   }
 
@@ -87,16 +99,14 @@ Deno.serve(async (req) => {
   const stripe = new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" });
 
   try {
-    // Get the frontend base URL from environment variables only
+    // Get the frontend base URL
     const frontendUrl = getFrontendBaseUrl();
 
     console.log(`[create-checkout-session] Using frontend URL: ${frontendUrl}`);
     console.log(
       `[create-checkout-session] Creating checkout session for plan: ${planId}, user: ${userId}`,
     );
-    console.log(
-      `[create-checkout-session] Price ID: ${planPriceMap[planId as keyof typeof planPriceMap]}`,
-    );
+    console.log(`[create-checkout-session] Price ID: ${priceId}`);
     console.log(`[create-checkout-session] Customer email: ${userEmail}`);
     console.log(
       `[create-checkout-session] Success URL: ${frontendUrl}/success`,

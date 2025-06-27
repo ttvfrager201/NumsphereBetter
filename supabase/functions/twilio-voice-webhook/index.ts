@@ -1,6 +1,120 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { corsHeaders } from "@shared/cors.ts";
-import { Database } from "@shared/database.types.ts";
+
+// CORS headers
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-requested-with",
+  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+  "Access-Control-Max-Age": "86400",
+  "Access-Control-Allow-Credentials": "false",
+};
+
+// Database types
+type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[];
+
+type Database = {
+  public: {
+    Tables: {
+      twilio_numbers: {
+        Row: {
+          id: string;
+          user_id: string | null;
+          phone_number: string;
+          twilio_sid: string;
+          friendly_name: string | null;
+          minutes_allocated: number | null;
+          minutes_used: number | null;
+          plan_id: string;
+          status: string | null;
+          created_at: string | null;
+          updated_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          user_id?: string | null;
+          phone_number: string;
+          twilio_sid: string;
+          friendly_name?: string | null;
+          minutes_allocated?: number | null;
+          minutes_used?: number | null;
+          plan_id: string;
+          status?: string | null;
+          created_at?: string | null;
+          updated_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          user_id?: string | null;
+          phone_number?: string;
+          twilio_sid?: string;
+          friendly_name?: string | null;
+          minutes_allocated?: number | null;
+          minutes_used?: number | null;
+          plan_id?: string;
+          status?: string | null;
+          created_at?: string | null;
+          updated_at?: string | null;
+        };
+        Relationships: [];
+      };
+      call_flows: {
+        Row: {
+          id: string;
+          user_id: string | null;
+          twilio_number_id: string | null;
+          flow_name: string;
+          flow_config: Json;
+          twilio_flow_sid: string | null;
+          is_active: boolean | null;
+          created_at: string | null;
+          updated_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          user_id?: string | null;
+          twilio_number_id?: string | null;
+          flow_name: string;
+          flow_config?: Json;
+          twilio_flow_sid?: string | null;
+          is_active?: boolean | null;
+          created_at?: string | null;
+          updated_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          user_id?: string | null;
+          twilio_number_id?: string | null;
+          flow_name?: string;
+          flow_config?: Json;
+          twilio_flow_sid?: string | null;
+          is_active?: boolean | null;
+          created_at?: string | null;
+          updated_at?: string | null;
+        };
+        Relationships: [];
+      };
+    };
+    Views: {
+      [_ in never]: never;
+    };
+    Functions: {
+      [_ in never]: never;
+    };
+    Enums: {
+      [_ in never]: never;
+    };
+    CompositeTypes: {
+      [_ in never]: never;
+    };
+  };
+};
 
 Deno.serve(async (req) => {
   // Handle CORS preflight requests
