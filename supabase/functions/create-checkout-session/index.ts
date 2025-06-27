@@ -79,7 +79,7 @@ Deno.serve(async (req) => {
   const stripe = new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" });
 
   try {
-    const origin = "https://boring-rubin1-9ntnx.view-3.tempo-dev.app";
+    const origin = "https://suspicious-mayer5-e9gey.view-3.tempo-dev.app";
 
     const checkoutSession = await stripe.checkout.sessions.create({
       mode: "subscription",
@@ -97,7 +97,6 @@ Deno.serve(async (req) => {
         user_id: userId,
         plan_id: planId,
         created_at: new Date().toISOString(),
-        auto_purchase_twilio: "true",
       },
       automatic_tax: { enabled: false }, // Disable for testing
       allow_promotion_codes: true,
@@ -120,9 +119,13 @@ Deno.serve(async (req) => {
       },
     );
   } catch (err) {
-    console.error("Stripe checkout session error:", err.message);
+    console.error("Stripe checkout session error:", err.message, err.stack);
     return new Response(
-      JSON.stringify({ error: "Failed to create checkout session" }),
+      JSON.stringify({
+        error: "Failed to create checkout session",
+        details: err.message,
+        type: err.type || "unknown_error",
+      }),
       {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },

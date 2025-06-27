@@ -46,15 +46,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return false;
     }
 
-    // Check if we have a cached result that's still valid (within 5 minutes)
+    // Check if we have a cached result that's still valid (within 2 minutes)
     const cacheKey = `payment_status_${user.id}`;
     const cached = sessionStorage.getItem(cacheKey);
     if (cached) {
       const { status, timestamp } = JSON.parse(cached);
       const now = Date.now();
-      if (now - timestamp < 300000) {
-        // 5 minutes cache to prevent tab switching redirects
-        // Using cached payment status
+      if (now - timestamp < 120000) {
+        // 2 minutes cache to prevent excessive requests
         setHasCompletedPayment(status);
         return status;
       }
@@ -92,16 +91,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.error("Error checking subscription status:", subscriptionError);
       }
 
-      // User has completed payment if either:
-      // 1. has_completed_payment is true in users table, OR
-      // 2. has an active subscription (not canceled)
+      // User has completed payment if:
+      // 1. has_completed_payment is true in users table AND
+      // 2. has an active subscription (not canceled or incomplete)
       const hasPayment = userData?.has_completed_payment || false;
       const hasActiveSubscription = subscriptionData?.status === "active";
       const isCanceled = subscriptionData?.status === "canceled";
+      const isIncomplete =
+        subscriptionData?.status === "incomplete" ||
+        subscriptionData?.status === "incomplete_expired";
 
-      // Only consider payment incomplete if subscription is explicitly canceled
-      // Otherwise, if they have payment record OR active subscription, they're good
-      const completed = (hasPayment || hasActiveSubscription) && !isCanceled;
+      // Both conditions must be true for payment to be considered complete
+      const completed =
+        hasPayment && hasActiveSubscription && !isCanceled && !isIncomplete;
 
       // Payment status check completed
 
@@ -176,14 +178,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Handle page visibility changes to prevent unnecessary redirects
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible" && user) {
-        // Only refresh payment status if cache is very old (10+ minutes)
+        // Only refresh payment status if cache is very old (15+ minutes)
         const cacheKey = `payment_status_${user.id}`;
         const cached = sessionStorage.getItem(cacheKey);
         if (cached) {
           const { timestamp } = JSON.parse(cached);
           const now = Date.now();
-          if (now - timestamp > 600000) {
-            // 10 minutes
+          if (now - timestamp > 900000) {
+            // 15 minutes
             checkPaymentStatus();
           }
         }

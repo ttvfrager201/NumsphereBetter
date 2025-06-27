@@ -236,23 +236,28 @@ export default function PlanSelection({
       console.log("Checkout URL received, storing subscription...");
 
       // Store the pending subscription in the database
-      const { error: dbError } = await supabase
-        .from("user_subscriptions")
-        .upsert(
-          {
-            user_id: user.id,
-            plan_id: planId,
-            stripe_checkout_session_id: data.sessionId,
-            status: "pending",
-          },
-          {
-            onConflict: "user_id",
-          },
-        );
+      try {
+        const { error: dbError } = await supabase
+          .from("user_subscriptions")
+          .upsert(
+            {
+              user_id: user.id,
+              plan_id: planId,
+              stripe_checkout_session_id: data.sessionId,
+              status: "pending",
+            },
+            {
+              onConflict: "user_id",
+            },
+          );
 
-      if (dbError) {
-        console.error("Error storing subscription:", dbError);
-        // Don't throw here, still proceed to checkout
+        if (dbError) {
+          console.error("Error storing subscription:", dbError);
+          // Don't throw here, still proceed to checkout
+        }
+      } catch (dbError) {
+        console.error("Database error storing subscription:", dbError);
+        // Continue to checkout even if DB storage fails
       }
 
       console.log("Redirecting to Stripe checkout:", data.url);

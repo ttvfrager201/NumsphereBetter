@@ -55,10 +55,36 @@ Deno.serve(async (req) => {
   const stripe = new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" });
 
   try {
-    // Retrieve the checkout session from Stripe
-    const session = await stripe.checkout.sessions.retrieve(sessionId, {
-      expand: ["subscription"],
-    });
+    console.log("Verifying payment for session:", sessionId, "user:", userId);
+
+    // Retrieve the checkout session from Stripe with retry logic
+    let session;
+    let retryCount = 0;
+    const maxRetries = 3;
+
+    while (retryCount < maxRetries) {
+      try {
+        session = await stripe.checkout.sessions.retrieve(sessionId, {
+          expand: ["subscription"],
+        });
+        break;
+      } catch (stripeError) {
+        retryCount++;
+        console.error(
+          `Stripe API error (attempt ${retryCount}):`,
+          stripeError.message,
+        );
+
+        if (retryCount >= maxRetries) {
+          throw new Error(
+            `Failed to retrieve session after ${maxRetries} attempts: ${stripeError.message}`,
+          );
+        }
+
+        // Wait before retry
+        await new Promise((resolve) => setTimeout(resolve, 1000 * retryCount));
+      }
+    }
 
     console.log("Retrieved Stripe session:", {
       id: session.id,
@@ -111,12 +137,20 @@ Deno.serve(async (req) => {
       },
     );
   } catch (err) {
-    console.error("Stripe session verification error:", err.message);
+    console.error("Stripe session verification error:", {
+      message: err.message,
+      stack: err.stack,
+      sessionId,
+      userId,
+    });
+
     return new Response(
       JSON.stringify({
         success: false,
         error: "Failed to verify payment session",
         details: err.message,
+        sessionId: sessionId,
+        timestamp: new Date().toISOString(),
       }),
       {
         status: 500,

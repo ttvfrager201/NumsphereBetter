@@ -21,51 +21,32 @@ import { Toaster } from "./components/ui/toaster";
 import { LoadingScreen, LoadingSpinner } from "./components/ui/loading-spinner";
 
 function PlanSelectionWrapper() {
-  const { hasCompletedPayment, loading, user, checkPaymentStatus } = useAuth();
+  const { hasCompletedPayment, loading, user } = useAuth();
   const navigate = useNavigate();
-  const [isCheckingPayment, setIsCheckingPayment] = React.useState(false);
-  const [paymentCheckComplete, setPaymentCheckComplete] = React.useState(false);
+  const [hasCheckedOnMount, setHasCheckedOnMount] = React.useState(false);
 
-  // Force payment status check when component mounts
+  // Single check on mount to prevent loops
   React.useEffect(() => {
-    if (user && !isCheckingPayment && !paymentCheckComplete) {
-      setIsCheckingPayment(true);
-      checkPaymentStatus()
-        .then((status) => {
-          console.log("PlanSelectionWrapper: Payment check result:", status);
-          setPaymentCheckComplete(true);
-          if (status) {
-            console.log("User has completed payment, redirecting to dashboard");
-            navigate("/dashboard", { replace: true });
-          }
-        })
-        .catch((error) => {
-          console.error("PlanSelectionWrapper: Payment check failed:", error);
-          setPaymentCheckComplete(true);
-        })
-        .finally(() => {
-          setIsCheckingPayment(false);
-        });
+    if (user && !hasCheckedOnMount) {
+      setHasCheckedOnMount(true);
+      if (hasCompletedPayment) {
+        console.log("User has completed payment, redirecting to dashboard");
+        navigate("/dashboard", { replace: true });
+      }
     }
-  }, [
-    user,
-    checkPaymentStatus,
-    navigate,
-    isCheckingPayment,
-    paymentCheckComplete,
-  ]);
+  }, [user, hasCompletedPayment, navigate, hasCheckedOnMount]);
 
   // If user is not logged in, redirect to home
   if (!loading && !user) {
     return <Navigate to="/" replace />;
   }
 
-  // If user has already completed payment, redirect immediately without showing plan selection
+  // If user has already completed payment, redirect immediately
   if (!loading && user && hasCompletedPayment) {
     return <Navigate to="/dashboard" replace />;
   }
 
-  if (loading || isCheckingPayment || !paymentCheckComplete) {
+  if (loading) {
     return <LoadingScreen text="Checking subscription status..." />;
   }
 
