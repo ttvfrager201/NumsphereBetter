@@ -106,14 +106,7 @@ function AppRoutes() {
             </PrivateRoute>
           }
         />
-        <Route
-          path="/success"
-          element={
-            <PrivateRoute>
-              <Success />
-            </PrivateRoute>
-          }
-        />
+        <Route path="/success" element={<Success />} />
         <Route path="/forgot-password" element={<ForgotPasswordForm />} />
         <Route path="/reset-password" element={<ResetPasswordForm />} />
       </Routes>

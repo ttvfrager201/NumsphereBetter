@@ -90,13 +90,19 @@ Deno.serve(async (req) => {
           quantity: 1,
         },
       ],
-      success_url: `${origin}/success?session_id={CHECKOUT_SESSION_ID}`,
+      success_url: `${origin}/dashboard`,
       cancel_url: `${origin}/plan-selection`,
       customer_email: userEmail,
       metadata: {
         user_id: userId,
         plan_id: planId,
         created_at: new Date().toISOString(),
+      },
+      subscription_data: {
+        metadata: {
+          user_id: userId,
+          plan_id: planId,
+        },
       },
       automatic_tax: { enabled: false }, // Disable for testing
       allow_promotion_codes: true,
