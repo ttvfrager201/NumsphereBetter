@@ -14,7 +14,7 @@ Deno.serve(async (req) => {
   }
 
   // Log configuration for debugging
-  logConfig("verify-payment", req);
+  logConfig("verify-payment");
 
   let body;
   try {

@@ -6,7 +6,7 @@ import { corsHeaders } from "@shared/cors.ts";
 
 Deno.serve(async (req) => {
   // Log configuration for debugging
-  logConfig("create-checkout-session", req);
+  logConfig("create-checkout-session");
 
   // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
@@ -78,28 +78,10 @@ Deno.serve(async (req) => {
   const stripe = new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" });
 
   try {
-    // Get the frontend base URL dynamically
-    const frontendUrl = getFrontendBaseUrl(req);
+    // Get the frontend base URL from environment variables only
+    const frontendUrl = getFrontendBaseUrl();
 
     console.log(`[create-checkout-session] Using frontend URL: ${frontendUrl}`);
-    console.log(
-      `[create-checkout-session] Request origin: ${req.headers.get("origin")}`,
-    );
-    console.log(
-      `[create-checkout-session] Request referer: ${req.headers.get("referer")}`,
-    );
-    console.log(
-      `[create-checkout-session] Request host: ${req.headers.get("host")}`,
-    );
-    console.log(
-      `[create-checkout-session] SUPABASE_URL: ${Deno.env.get("SUPABASE_URL")}`,
-    );
-    console.log(
-      `[create-checkout-session] FRONTEND_URL: ${Deno.env.get("FRONTEND_URL")}`,
-    );
-    console.log(
-      `[create-checkout-session] VITE_APP_URL: ${Deno.env.get("VITE_APP_URL")}`,
-    );
     console.log(
       `[create-checkout-session] Creating checkout session for plan: ${planId}, user: ${userId}`,
     );

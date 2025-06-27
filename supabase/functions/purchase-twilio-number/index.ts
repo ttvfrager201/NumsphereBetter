@@ -21,7 +21,7 @@ Deno.serve(async (req) => {
   }
 
   // Log configuration for debugging
-  logConfig("purchase-twilio-number", req);
+  logConfig("purchase-twilio-number");
 
   const startTime = Date.now();
   let requestData;
@@ -210,27 +210,33 @@ Deno.serve(async (req) => {
       "FriendlyName",
       `NumSphere - ${planId.charAt(0).toUpperCase() + planId.slice(1)} Plan`,
     );
-    // Use dynamic webhook base URL
-    const baseWebhookUrl = getWebhookBaseUrl(req);
+    // Use webhook base URL from environment variables only
+    const baseWebhookUrl = getWebhookBaseUrl();
 
     console.log(
       `[purchase-twilio-number] Using webhook base URL: ${baseWebhookUrl}`,
     );
     console.log(
-      `[purchase-twilio-number] Voice webhook: ${baseWebhookUrl}/twilio-voice-webhook`,
+      `[purchase-twilio-number] Voice webhook: ${baseWebhookUrl}/supabase-functions-twilio-voice-webhook`,
     );
     console.log(
-      `[purchase-twilio-number] SMS webhook: ${baseWebhookUrl}/twilio-sms-webhook`,
+      `[purchase-twilio-number] SMS webhook: ${baseWebhookUrl}/supabase-functions-twilio-sms-webhook`,
     );
     console.log(
-      `[purchase-twilio-number] Status webhook: ${baseWebhookUrl}/twilio-status-webhook`,
+      `[purchase-twilio-number] Status webhook: ${baseWebhookUrl}/supabase-functions-twilio-status-webhook`,
     );
 
-    formData.append("VoiceUrl", `${baseWebhookUrl}/twilio-voice-webhook`);
-    formData.append("SmsUrl", `${baseWebhookUrl}/twilio-sms-webhook`);
+    formData.append(
+      "VoiceUrl",
+      `${baseWebhookUrl}/supabase-functions-twilio-voice-webhook`,
+    );
+    formData.append(
+      "SmsUrl",
+      `${baseWebhookUrl}/supabase-functions-twilio-sms-webhook`,
+    );
     formData.append(
       "StatusCallback",
-      `${baseWebhookUrl}/twilio-status-webhook`,
+      `${baseWebhookUrl}/supabase-functions-twilio-status-webhook`,
     );
 
     console.log(
