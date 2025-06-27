@@ -57,21 +57,24 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Cancel subscription in Stripe
+    // Cancel subscription in Stripe - webhook will handle database updates
     await stripe.subscriptions.update(subscription.stripe_subscription_id, {
       cancel_at_period_end: true,
     });
 
-    // Update subscription status in database
-    await supabase
-      .from("user_subscriptions")
-      .update({ status: "canceled" })
-      .eq("stripe_subscription_id", subscription.stripe_subscription_id);
+    // Note: Database updates will be handled by webhook when Stripe sends the event
 
-    return new Response(JSON.stringify({ success: true }), {
-      status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({
+        success: true,
+        message:
+          "Subscription cancellation initiated. Status will be updated via webhook.",
+      }),
+      {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
+    );
   } catch (error) {
     console.error("Error cancelling subscription:", error);
     return new Response(

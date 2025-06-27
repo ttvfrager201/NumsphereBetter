@@ -23,34 +23,25 @@ import { LoadingScreen, LoadingSpinner } from "./components/ui/loading-spinner";
 function PlanSelectionWrapper() {
   const { hasCompletedPayment, loading, user } = useAuth();
   const navigate = useNavigate();
-  const [hasCheckedOnMount, setHasCheckedOnMount] = React.useState(false);
 
-  // Single check on mount to prevent loops
   React.useEffect(() => {
-    if (user && !hasCheckedOnMount) {
-      setHasCheckedOnMount(true);
-      if (hasCompletedPayment) {
-        console.log("User has completed payment, redirecting to dashboard");
-        navigate("/dashboard", { replace: true });
-      }
+    if (!loading && user && hasCompletedPayment) {
+      navigate("/dashboard", { replace: true });
     }
-  }, [user, hasCompletedPayment, navigate, hasCheckedOnMount]);
+  }, [user, hasCompletedPayment, loading, navigate]);
 
-  // If user is not logged in, redirect to home
   if (!loading && !user) {
     return <Navigate to="/" replace />;
   }
 
-  // If user has already completed payment, redirect immediately
   if (!loading && user && hasCompletedPayment) {
     return <Navigate to="/dashboard" replace />;
   }
 
   if (loading) {
-    return <LoadingScreen text="Checking subscription status..." />;
+    return <LoadingScreen text="Loading..." />;
   }
 
-  // Pass hasCompletedPayment to PlanSelection component
   return <PlanSelection hasActiveSubscription={hasCompletedPayment} />;
 }
 
@@ -64,22 +55,17 @@ function PrivateRoute({
   const { user, loading, hasCompletedPayment } = useAuth();
 
   if (loading) {
-    return <LoadingScreen text="Authenticating..." />;
+    return <LoadingScreen text="Loading..." />;
   }
 
   if (!user) {
-    // No user, redirecting to home
     return <Navigate to="/" replace />;
   }
 
-  // If payment is required but user hasn't completed payment, redirect to plan selection
-  // But only redirect if we're not already on the plan selection page to avoid loops
   if (requiresPayment && !hasCompletedPayment) {
-    // Payment required but not completed, redirecting to plan selection
     return <Navigate to="/plan-selection" replace />;
   }
 
-  // Access granted
   return <>{children}</>;
 }
 

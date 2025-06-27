@@ -235,7 +235,7 @@ export default function PlanSelection({
 
       console.log("Checkout URL received, storing subscription...");
 
-      // Store the pending subscription in the database
+      // Store the pending subscription in the database with session tracking
       try {
         const { error: dbError } = await supabase
           .from("user_subscriptions")
@@ -245,15 +245,20 @@ export default function PlanSelection({
               plan_id: planId,
               stripe_checkout_session_id: data.sessionId,
               status: "pending",
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
             },
             {
               onConflict: "user_id",
+              ignoreDuplicates: false,
             },
           );
 
         if (dbError) {
           console.error("Error storing subscription:", dbError);
           // Don't throw here, still proceed to checkout
+        } else {
+          console.log("Pending subscription stored successfully");
         }
       } catch (dbError) {
         console.error("Database error storing subscription:", dbError);

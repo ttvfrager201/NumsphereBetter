@@ -57,15 +57,13 @@ const TopNavigation = ({
       if (!user) return;
 
       try {
-        const { data, error } = await supabase
+        const { data } = await supabase
           .from("users")
           .select("full_name, email, created_at")
           .eq("id", user.id)
           .single();
 
-        if (error) {
-          console.error("Error fetching user profile:", error);
-        } else {
+        if (data) {
           setUserProfile(data);
         }
       } catch (error) {

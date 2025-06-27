@@ -46,89 +46,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return false;
     }
 
-    // Check if we have a cached result that's still valid (within 2 minutes)
-    const cacheKey = `payment_status_${user.id}`;
-    const cached = sessionStorage.getItem(cacheKey);
-    if (cached) {
-      const { status, timestamp } = JSON.parse(cached);
-      const now = Date.now();
-      if (now - timestamp < 120000) {
-        // 2 minutes cache to prevent excessive requests
-        setHasCompletedPayment(status);
-        return status;
-      }
-    }
-
     try {
-      // Checking payment status
+      // Check webhook-updated database state only
+      const { data: userData, error: userError } = await supabase
+        .from("users")
+        .select("has_completed_payment")
+        .eq("id", user.id)
+        .single();
 
-      // Check both user payment status and active subscription
-      const [userResult, subscriptionResult] = await Promise.all([
-        supabase
-          .from("users")
-          .select("has_completed_payment")
-          .eq("id", user.id)
-          .single(),
-        supabase
-          .from("user_subscriptions")
-          .select("status, stripe_subscription_id, plan_id")
-          .eq("user_id", user.id)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .single(),
-      ]);
-
-      const { data: userData, error: userError } = userResult;
-      const { data: subscriptionData, error: subscriptionError } =
-        subscriptionResult;
-
-      // Log errors but don't fail if records don't exist
       if (userError && userError.code !== "PGRST116") {
         console.error("Error checking user payment status:", userError);
+        setHasCompletedPayment(false);
+        return false;
       }
 
-      if (subscriptionError && subscriptionError.code !== "PGRST116") {
-        console.error("Error checking subscription status:", subscriptionError);
-      }
+      // Also check subscription status from webhook-managed table
+      const { data: subscriptionData } = await supabase
+        .from("user_subscriptions")
+        .select("status")
+        .eq("user_id", user.id)
+        .eq("status", "active")
+        .maybeSingle();
 
-      // User has completed payment if:
-      // 1. has_completed_payment is true in users table AND
-      // 2. has an active subscription (not canceled or incomplete)
-      const hasPayment = userData?.has_completed_payment || false;
-      const hasActiveSubscription = subscriptionData?.status === "active";
-      const isCanceled = subscriptionData?.status === "canceled";
-      const isIncomplete =
-        subscriptionData?.status === "incomplete" ||
-        subscriptionData?.status === "incomplete_expired";
-
-      // Both conditions must be true for payment to be considered complete
-      const completed =
-        hasPayment && hasActiveSubscription && !isCanceled && !isIncomplete;
-
-      // Payment status check completed
-
-      // Cache the result
-      sessionStorage.setItem(
-        cacheKey,
-        JSON.stringify({
-          status: completed,
-          timestamp: Date.now(),
-        }),
-      );
-
-      // Set payment status based on actual data
-      setHasCompletedPayment(completed);
-      return completed;
+      const hasPayment =
+        userData?.has_completed_payment &&
+        subscriptionData?.status === "active";
+      setHasCompletedPayment(hasPayment || false);
+      return hasPayment || false;
     } catch (error) {
       console.error("Error checking payment status:", error);
-      // On error, check if we have any cached status to fall back to
-      if (cached) {
-        const { status } = JSON.parse(cached);
-        // Using cached payment status due to error
-        setHasCompletedPayment(status);
-        return status;
-      }
-      // Only as last resort, assume payment is incomplete
       setHasCompletedPayment(false);
       return false;
     }
@@ -137,13 +83,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     // Check active sessions and sets the user
     supabase.auth.getSession().then(async ({ data: { session } }) => {
-      // Initial session check
       setUser(session?.user ?? null);
       if (session?.user) {
-        // Add a small delay to ensure database is ready
-        setTimeout(async () => {
-          await checkPaymentStatus();
-        }, 100);
+        await checkPaymentStatus();
       } else {
         setHasCompletedPayment(false);
       }
@@ -154,9 +96,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
-      // Auth state change
-
-      // Only check payment status on actual auth changes, not on tab focus
       if (
         event === "SIGNED_IN" ||
         event === "SIGNED_OUT" ||
@@ -164,10 +103,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       ) {
         setUser(session?.user ?? null);
         if (session?.user) {
-          // Add a small delay to ensure database is ready
-          setTimeout(async () => {
-            await checkPaymentStatus();
-          }, 100);
+          await checkPaymentStatus();
         } else {
           setHasCompletedPayment(false);
         }
@@ -175,30 +111,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
-    // Handle page visibility changes to prevent unnecessary redirects
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible" && user) {
-        // Only refresh payment status if cache is very old (15+ minutes)
-        const cacheKey = `payment_status_${user.id}`;
-        const cached = sessionStorage.getItem(cacheKey);
-        if (cached) {
-          const { timestamp } = JSON.parse(cached);
-          const now = Date.now();
-          if (now - timestamp > 900000) {
-            // 15 minutes
-            checkPaymentStatus();
-          }
-        }
-      }
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
     return () => {
       subscription.unsubscribe();
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [user]);
+  }, []);
 
   const signUp = async (email: string, password: string, fullName: string) => {
     const { data, error } = await supabase.auth.signUp({

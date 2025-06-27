@@ -58,7 +58,10 @@ export async function updateUserPaymentStatus(
     // Update user payment status
     const { error: userError } = await supabase
       .from("users")
-      .update({ has_completed_payment: status === "active" })
+      .update({
+        has_completed_payment: status === "active",
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", userId);
 
     if (userError) {
@@ -66,7 +69,7 @@ export async function updateUserPaymentStatus(
       throw userError;
     }
 
-    // Update or insert subscription
+    // Update or insert subscription with better conflict resolution
     const { error: subscriptionError } = await supabase
       .from("user_subscriptions")
       .upsert(
@@ -80,6 +83,7 @@ export async function updateUserPaymentStatus(
         },
         {
           onConflict: "user_id",
+          ignoreDuplicates: false,
         },
       );
 
@@ -91,9 +95,41 @@ export async function updateUserPaymentStatus(
     console.log(
       `Successfully updated payment status for user ${userId} to ${status}`,
     );
+
+    return { success: true };
   } catch (error) {
     console.error("Error in updateUserPaymentStatus:", error);
     throw error;
+  }
+}
+
+export async function getUserSubscriptionStatus(userId: string) {
+  const supabase = createSupabaseClient();
+
+  try {
+    const { data: user } = await supabase
+      .from("users")
+      .select("has_completed_payment")
+      .eq("id", userId)
+      .single();
+
+    const { data: subscription } = await supabase
+      .from("user_subscriptions")
+      .select("*")
+      .eq("user_id", userId)
+      .eq("status", "active")
+      .single();
+
+    return {
+      hasCompletedPayment: user?.has_completed_payment || false,
+      subscription: subscription || null,
+    };
+  } catch (error) {
+    console.error("Error getting user subscription status:", error);
+    return {
+      hasCompletedPayment: false,
+      subscription: null,
+    };
   }
 }
 

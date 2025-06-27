@@ -1,8 +1,6 @@
 import { corsHeaders } from "@shared/cors.ts";
 import {
   verifyStripeWebhook,
-  updateUserPaymentStatus,
-  getPlanIdFromPriceId,
   createSupabaseClient,
 } from "@shared/stripe-helpers.ts";
 
@@ -15,6 +13,7 @@ Deno.serve(async (req) => {
     });
   }
 
+  // Only accept POST requests
   if (req.method !== "POST") {
     return new Response(JSON.stringify({ error: "Method not allowed" }), {
       status: 405,
@@ -23,164 +22,29 @@ Deno.serve(async (req) => {
   }
 
   try {
+    // Verify webhook signature first (security)
     const body = await req.text();
     const event = verifyStripeWebhook(req, body);
 
-    console.log(`Processing Stripe webhook event: ${event.type}`);
+    console.log(`Processing webhook: ${event.type}`);
 
+    // Handle only essential events
     switch (event.type) {
-      case "checkout.session.completed": {
-        const session = event.data.object;
-        console.log("Checkout session completed:", session.id);
-
-        // Get user ID from metadata
-        const userId = session.metadata?.user_id;
-        if (!userId) {
-          console.error("No user_id in session metadata");
-          return new Response(
-            JSON.stringify({ error: "Missing user_id in metadata" }),
-            {
-              status: 400,
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            },
-          );
-        }
-
-        // For subscription mode, we'll handle this in customer.subscription.created
-        if (session.mode === "subscription") {
-          console.log(
-            "Subscription checkout completed, waiting for subscription.created event",
-          );
-        }
-
-        break;
-      }
-
       case "customer.subscription.created":
-      case "customer.subscription.updated": {
-        const subscription = event.data.object;
-        console.log(`Subscription ${event.type}:`, subscription.id);
-
-        // Get user ID from subscription metadata
-        const userId = subscription.metadata?.user_id;
-        const planId = subscription.metadata?.plan_id;
-
-        if (!userId || !planId) {
-          console.error("Missing user_id or plan_id in subscription metadata");
-          break;
-        }
-
-        const customerId = subscription.customer as string;
-        const status = subscription.status;
-
-        console.log(
-          `Updating subscription for user ${userId} to status ${status}`,
-        );
-
-        try {
-          await updateUserPaymentStatus(
-            userId,
-            planId,
-            subscription.id,
-            customerId,
-            status,
-          );
-          console.log(`Successfully updated payment status for user ${userId}`);
-        } catch (error) {
-          console.error(
-            `Failed to update payment status for user ${userId}:`,
-            error,
-          );
-        }
-
+      case "customer.subscription.updated":
+        await handleSubscriptionChange(event.data.object);
         break;
-      }
 
-      case "invoice.payment_succeeded": {
-        const invoice = event.data.object;
-        console.log("Invoice payment succeeded:", invoice.id);
-
-        // Handle successful recurring payments
-        if (invoice.subscription) {
-          const subscriptionId = invoice.subscription as string;
-          console.log(`Payment succeeded for subscription: ${subscriptionId}`);
-
-          // Find user by subscription ID and update status to active
-          try {
-            const supabase = createSupabaseClient();
-            const { data: subscription, error } = await supabase
-              .from("user_subscriptions")
-              .select("user_id, plan_id, stripe_customer_id")
-              .eq("stripe_subscription_id", subscriptionId)
-              .single();
-
-            if (error || !subscription) {
-              console.error("Could not find subscription:", error);
-              break;
-            }
-
-            await updateUserPaymentStatus(
-              subscription.user_id!,
-              subscription.plan_id,
-              subscriptionId,
-              subscription.stripe_customer_id!,
-              "active",
-            );
-          } catch (error) {
-            console.error("Error processing payment success:", error);
-          }
-        }
-
+      case "customer.subscription.deleted":
+        await handleSubscriptionCanceled(event.data.object);
         break;
-      }
 
-      case "invoice.payment_failed": {
-        const invoice = event.data.object;
-        console.log("Invoice payment failed:", invoice.id);
-
-        // Handle failed payments - might want to update subscription status
-        if (invoice.subscription) {
-          const subscriptionId = invoice.subscription as string;
-          console.log(`Payment failed for subscription: ${subscriptionId}`);
-        }
-
+      case "invoice.payment_succeeded":
+        await handlePaymentSuccess(event.data.object);
         break;
-      }
-
-      case "customer.subscription.deleted": {
-        const subscription = event.data.object;
-        console.log("Subscription deleted:", subscription.id);
-
-        // Update user payment status to false and subscription status to canceled
-        try {
-          const supabase = createSupabaseClient();
-          const { data: subscriptionData, error } = await supabase
-            .from("user_subscriptions")
-            .select("user_id, plan_id, stripe_customer_id")
-            .eq("stripe_subscription_id", subscription.id)
-            .single();
-
-          if (error || !subscriptionData) {
-            console.error("Could not find subscription:", error);
-            break;
-          }
-
-          await updateUserPaymentStatus(
-            subscriptionData.user_id!,
-            subscriptionData.plan_id,
-            subscription.id,
-            subscriptionData.stripe_customer_id!,
-            "canceled",
-          );
-        } catch (error) {
-          console.error("Error processing subscription deletion:", error);
-        }
-
-        break;
-      }
 
       default:
-        console.log(`Unhandled event type: ${event.type}`);
+        console.log(`Ignored event: ${event.type}`);
     }
 
     return new Response(JSON.stringify({ received: true }), {
@@ -188,16 +52,210 @@ Deno.serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {
-    console.error("Webhook processing error:", error);
-    return new Response(
-      JSON.stringify({
-        error: "Webhook processing failed",
-        details: error.message,
-      }),
-      {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      },
-    );
+    console.error("Webhook error:", error.message);
+    return new Response(JSON.stringify({ error: "Webhook failed" }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 });
+
+// Handle subscription creation/updates
+async function handleSubscriptionChange(subscription: any) {
+  const userId = subscription.metadata?.user_id;
+  const planId = subscription.metadata?.plan_id;
+
+  if (!userId || !planId) {
+    console.error("Missing user_id or plan_id in metadata", {
+      userId,
+      planId,
+      metadata: subscription.metadata,
+    });
+    return;
+  }
+
+  const supabase = createSupabaseClient();
+
+  try {
+    console.log(
+      `Processing subscription change for user ${userId}, plan ${planId}, status ${subscription.status}`,
+    );
+
+    // Update user payment status with timestamp
+    const { error: userError } = await supabase
+      .from("users")
+      .update({
+        has_completed_payment: subscription.status === "active",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", userId);
+
+    if (userError) {
+      console.error("Error updating user payment status:", userError);
+      throw userError;
+    }
+
+    // Update subscription record with better conflict handling
+    const { error: subError } = await supabase
+      .from("user_subscriptions")
+      .upsert(
+        {
+          user_id: userId,
+          plan_id: planId,
+          stripe_subscription_id: subscription.id,
+          stripe_customer_id: subscription.customer,
+          status: subscription.status,
+          updated_at: new Date().toISOString(),
+        },
+        {
+          onConflict: "user_id",
+          ignoreDuplicates: false,
+        },
+      );
+
+    if (subError) {
+      console.error("Error updating subscription:", subError);
+      throw subError;
+    }
+
+    console.log(
+      `Successfully updated subscription for user ${userId} to status ${subscription.status}`,
+    );
+  } catch (error) {
+    console.error("Database update failed:", error);
+    throw error;
+  }
+}
+
+// Handle subscription cancellation
+async function handleSubscriptionCanceled(subscription: any) {
+  const supabase = createSupabaseClient();
+
+  try {
+    console.log(
+      `Processing subscription cancellation for subscription ${subscription.id}`,
+    );
+
+    // Find user by subscription ID
+    const { data, error: fetchError } = await supabase
+      .from("user_subscriptions")
+      .select("user_id, plan_id")
+      .eq("stripe_subscription_id", subscription.id)
+      .single();
+
+    if (fetchError) {
+      console.error("Error finding subscription:", fetchError);
+      throw fetchError;
+    }
+
+    if (data?.user_id) {
+      console.log(`Canceling subscription for user ${data.user_id}`);
+
+      // Mark payment as incomplete with timestamp
+      const { error: userError } = await supabase
+        .from("users")
+        .update({
+          has_completed_payment: false,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", data.user_id);
+
+      if (userError) {
+        console.error("Error updating user payment status:", userError);
+        throw userError;
+      }
+
+      // Update subscription status
+      const { error: subError } = await supabase
+        .from("user_subscriptions")
+        .update({
+          status: "canceled",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("stripe_subscription_id", subscription.id);
+
+      if (subError) {
+        console.error("Error updating subscription status:", subError);
+        throw subError;
+      }
+
+      console.log(
+        `Successfully canceled subscription for user ${data.user_id}`,
+      );
+    } else {
+      console.log("No user found for subscription", subscription.id);
+    }
+  } catch (error) {
+    console.error("Cancellation update failed:", error);
+    throw error;
+  }
+}
+
+// Handle successful payments
+async function handlePaymentSuccess(invoice: any) {
+  if (!invoice.subscription) {
+    console.log(
+      "No subscription found in invoice, skipping payment success handling",
+    );
+    return;
+  }
+
+  const supabase = createSupabaseClient();
+
+  try {
+    console.log(
+      `Processing payment success for subscription ${invoice.subscription}`,
+    );
+
+    // Find user by subscription ID
+    const { data, error: fetchError } = await supabase
+      .from("user_subscriptions")
+      .select("user_id, plan_id")
+      .eq("stripe_subscription_id", invoice.subscription)
+      .single();
+
+    if (fetchError) {
+      console.error("Error finding subscription for payment:", fetchError);
+      throw fetchError;
+    }
+
+    if (data?.user_id) {
+      console.log(`Confirming payment for user ${data.user_id}`);
+
+      // Ensure payment status is active with timestamp
+      const { error: userError } = await supabase
+        .from("users")
+        .update({
+          has_completed_payment: true,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", data.user_id);
+
+      if (userError) {
+        console.error("Error updating user payment status:", userError);
+        throw userError;
+      }
+
+      // Update subscription status
+      const { error: subError } = await supabase
+        .from("user_subscriptions")
+        .update({
+          status: "active",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("stripe_subscription_id", invoice.subscription);
+
+      if (subError) {
+        console.error("Error updating subscription status:", subError);
+        throw subError;
+      }
+
+      console.log(`Successfully confirmed payment for user ${data.user_id}`);
+    } else {
+      console.log("No user found for subscription", invoice.subscription);
+    }
+  } catch (error) {
+    console.error("Payment confirmation failed:", error);
+    throw error;
+  }
+}

@@ -79,7 +79,9 @@ Deno.serve(async (req) => {
   const stripe = new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" });
 
   try {
-    const origin = "https://suspicious-mayer5-e9gey.view-3.tempo-dev.app";
+    const origin =
+      req.headers.get("origin") ||
+      "https://strange-fermat5-yjnen.view-3.tempo-dev.app";
 
     const checkoutSession = await stripe.checkout.sessions.create({
       mode: "subscription",
@@ -90,13 +92,12 @@ Deno.serve(async (req) => {
           quantity: 1,
         },
       ],
-      success_url: `${origin}/dashboard`,
+      success_url: `${origin}/success`,
       cancel_url: `${origin}/plan-selection`,
       customer_email: userEmail,
       metadata: {
         user_id: userId,
         plan_id: planId,
-        created_at: new Date().toISOString(),
       },
       subscription_data: {
         metadata: {
@@ -104,7 +105,7 @@ Deno.serve(async (req) => {
           plan_id: planId,
         },
       },
-      automatic_tax: { enabled: false }, // Disable for testing
+      automatic_tax: { enabled: false },
       allow_promotion_codes: true,
       billing_address_collection: "required",
       phone_number_collection: {

@@ -17,11 +17,9 @@ export default function LandingPage() {
   const { user, signOut, hasCompletedPayment, checkPaymentStatus } = useAuth();
   const navigate = useNavigate();
 
-  // Force payment status check when component mounts
+  // Check payment status when component mounts
   React.useEffect(() => {
     if (user) {
-      console.log("Home: Checking payment status for user:", user.id);
-      console.log("Home: Current hasCompletedPayment:", hasCompletedPayment);
       checkPaymentStatus();
     }
   }, [user, checkPaymentStatus]);

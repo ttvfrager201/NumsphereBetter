@@ -81,40 +81,28 @@ const PaymentHistory = () => {
   const { user } = useAuth();
   const [payments, setPayments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [stripeCustomerPortalUrl, setStripeCustomerPortalUrl] = useState<
-    string | null
-  >(null);
+  const [customerPortalUrl, setCustomerPortalUrl] = useState<string | null>(
+    null,
+  );
 
   useEffect(() => {
     const fetchPaymentHistory = async () => {
       if (!user) return;
 
       try {
-        setError(null);
-        // Fetch payment history from Stripe via edge function with better error handling
-        const { data, error } = await supabase.functions.invoke(
+        const { data } = await supabase.functions.invoke(
           "supabase-functions-get-payment-history",
           {
             body: { userId: user.id },
-            headers: {
-              "Content-Type": "application/json",
-            },
           },
         );
 
-        if (error) {
-          console.error("Payment history error:", error);
-          setError("Unable to load payment history. Please try again later.");
-          setPayments([]);
-        } else {
-          setPayments(data?.payments || []);
-          setStripeCustomerPortalUrl(data?.customerPortalUrl || null);
+        if (data) {
+          setPayments(data.payments || []);
+          setCustomerPortalUrl(data.customerPortalUrl);
         }
       } catch (error) {
-        console.error("Payment history fetch error:", error);
-        setError("Unable to load payment history. Please try again later.");
-        setPayments([]);
+        console.error("Payment history error:", error);
       } finally {
         setLoading(false);
       }
@@ -168,27 +156,10 @@ const PaymentHistory = () => {
     return (
       <div className="space-y-6">
         <div className="text-center py-8">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-4">
+          <h2 className="text-2xl font-bold text-gray-900 mb-4">
             Payment History
           </h2>
-          <p className="text-gray-600 dark:text-gray-400">
-            Loading payment history...
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="space-y-6">
-        <div className="text-center py-8">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-4">
-            Payment History
-          </h2>
-          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
-            <p className="text-red-600 dark:text-red-400">{error}</p>
-          </div>
+          <p className="text-gray-600">Loading payment history...</p>
         </div>
       </div>
     );
@@ -206,8 +177,7 @@ const PaymentHistory = () => {
       </div>
 
       <div className="space-y-6">
-        {/* Stripe Customer Portal Link */}
-        {stripeCustomerPortalUrl && (
+        {customerPortalUrl && (
           <Card className="bg-blue-50 border-blue-200">
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
@@ -216,12 +186,12 @@ const PaymentHistory = () => {
                     Manage Your Subscription
                   </h3>
                   <p className="text-sm text-blue-700 mt-1">
-                    Update payment methods, download invoices, and manage your
-                    billing preferences
+                    Update payment methods, download invoices, and manage
+                    billing
                   </p>
                 </div>
                 <Button
-                  onClick={() => window.open(stripeCustomerPortalUrl, "_blank")}
+                  onClick={() => window.open(customerPortalUrl, "_blank")}
                   className="bg-blue-600 hover:bg-blue-700 text-white"
                 >
                   <CreditCard className="h-4 w-4 mr-2" />
@@ -321,67 +291,31 @@ const Home = () => {
 
       try {
         // Fetch user profile
-        const { data: profileData, error: profileError } = await supabase
+        const { data: profileData } = await supabase
           .from("users")
           .select("full_name, avatar_url")
           .eq("id", user.id)
           .single();
 
-        if (!profileError) {
+        if (profileData) {
           setUserProfile(profileData);
         }
 
-        // Fetch subscription data with better error handling
-        try {
-          const { data: subData, error: subError } = await supabase
-            .from("user_subscriptions")
-            .select(
-              "plan_id, status, created_at, stripe_customer_id, stripe_subscription_id",
-            )
-            .eq("user_id", user.id)
-            .eq("status", "active")
-            .maybeSingle(); // Use maybeSingle instead of single to avoid errors when no data
+        // Fetch subscription data - webhook managed
+        const { data: subData } = await supabase
+          .from("user_subscriptions")
+          .select(
+            "plan_id, status, created_at, stripe_customer_id, stripe_subscription_id",
+          )
+          .eq("user_id", user.id)
+          .eq("status", "active")
+          .maybeSingle();
 
-          if (!subError && subData) {
-            setSubscriptionData(subData);
-          } else if (subError) {
-            console.error("Error fetching subscription:", subError);
-          }
-        } catch (subError) {
-          console.error("Subscription fetch error:", subError);
-        }
-
-        // Fetch Stripe data for real subscription info with better error handling
-        try {
-          const { data: stripeResponse, error: stripeError } =
-            await supabase.functions.invoke(
-              "supabase-functions-get-payment-history",
-              {
-                body: { userId: user.id },
-                headers: {
-                  "Content-Type": "application/json",
-                },
-              },
-            );
-
-          if (!stripeError && stripeResponse) {
-            console.log("Stripe data received:", stripeResponse);
-            setStripeData(stripeResponse);
-            setStripeSubscription(stripeResponse?.subscription);
-          } else {
-            console.log("No Stripe data or error:", stripeError);
-            // Set empty data to show "No subscription" state
-            setStripeData(null);
-            setStripeSubscription(null);
-          }
-        } catch (error) {
-          console.error("Stripe API error:", error);
-          // Set empty data to show "No subscription" state
-          setStripeData(null);
-          setStripeSubscription(null);
+        if (subData) {
+          setSubscriptionData(subData);
         }
       } catch (error) {
-        // Silently handle errors to reduce console noise
+        console.error("Error fetching user data:", error);
       } finally {
         setLoadingStripeData(false);
       }
@@ -542,6 +476,11 @@ const Home = () => {
 
       if (error) throw error;
 
+      // Refresh payment status after cancellation to reflect webhook changes
+      setTimeout(async () => {
+        await checkPaymentStatus();
+      }, 2000);
+
       toast({
         title: "Success",
         description:
@@ -599,201 +538,104 @@ const Home = () => {
             {/* Content based on active tab */}
             {activeTab === "Home" && (
               <div className="space-y-8">
-                {/* Big Hello Section */}
-                <div className="text-center py-8 bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 rounded-2xl border border-blue-100 dark:border-blue-800">
-                  <h1 className="text-4xl font-bold text-gray-900 dark:text-gray-100 mb-4">
+                {/* Welcome Section */}
+                <div className="text-center py-12 bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 rounded-2xl border border-blue-100 dark:border-blue-800">
+                  <h1 className="text-5xl font-bold text-gray-900 dark:text-gray-100 mb-4">
+                    Welcome to NumSphere! 👋
+                  </h1>
+                  <p className="text-xl text-gray-600 dark:text-gray-300 mb-2">
                     Hello,{" "}
                     {userProfile?.full_name ||
                       user?.user_metadata?.full_name ||
                       user?.email?.split("@")[0] ||
                       "User"}
-                    ! 👋
-                  </h1>
-                  <p className="text-xl text-gray-600 dark:text-gray-300 mb-2">
-                    Welcome to your NumSphere Dashboard
+                    !
                   </p>
                   <p className="text-gray-500 dark:text-gray-400">
                     Manage your virtual phone numbers and call flows with ease
                   </p>
                 </div>
 
-                {/* Subscription Status Cards */}
+                {/* Dashboard Cards */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                  {/* Subscription Status Card */}
-                  <Card className="bg-white dark:bg-gray-800 hover:shadow-lg dark:hover:shadow-gray-900/20 transition-shadow duration-200 border-gray-200 dark:border-gray-700">
+                  <Card className="bg-white dark:bg-gray-800 hover:shadow-lg transition-shadow">
                     <CardHeader className="pb-3">
                       <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
                         Subscription Status
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
-                      {loadingStripeData ? (
-                        <div className="animate-pulse">
-                          <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded mb-2"></div>
-                          <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-16"></div>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-2">
-                          {stripeSubscription?.status === "active" ||
-                          subscriptionData?.status === "active" ? (
-                            <CheckCircle className="h-5 w-5 text-green-500" />
-                          ) : (
-                            <XCircle className="h-5 w-5 text-red-500" />
-                          )}
-                          <span className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-                            {stripeSubscription?.status === "active" ||
-                            subscriptionData?.status === "active"
-                              ? "Active"
-                              : "Inactive"}
-                          </span>
-                        </div>
-                      )}
+                      <div className="flex items-center gap-2">
+                        {subscriptionData?.status === "active" ? (
+                          <CheckCircle className="h-5 w-5 text-green-500" />
+                        ) : (
+                          <XCircle className="h-5 w-5 text-red-500" />
+                        )}
+                        <span className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                          {subscriptionData?.status === "active"
+                            ? "Active"
+                            : "Inactive"}
+                        </span>
+                      </div>
                       <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                        {stripeSubscription?.product_name ||
-                          stripeSubscription?.name ||
-                          (subscriptionData?.plan_id
-                            ? `${subscriptionData.plan_id.charAt(0).toUpperCase() + subscriptionData.plan_id.slice(1)} Plan`
-                            : "Free Plan")}
+                        {subscriptionData?.plan_id
+                          ? `${subscriptionData.plan_id.charAt(0).toUpperCase() + subscriptionData.plan_id.slice(1)} Plan`
+                          : "No Plan"}
                       </p>
                     </CardContent>
                   </Card>
 
-                  {/* Next Billing Cycle Card */}
-                  <Card className="bg-white dark:bg-gray-800 hover:shadow-lg dark:hover:shadow-gray-900/20 transition-shadow duration-200 border-gray-200 dark:border-gray-700">
+                  <Card className="bg-white dark:bg-gray-800 hover:shadow-lg transition-shadow">
                     <CardHeader className="pb-3">
                       <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                        Next Billing
+                        Phone Numbers
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
-                      {loadingStripeData ? (
-                        <div className="animate-pulse">
-                          <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded mb-2"></div>
-                          <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-20"></div>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-2">
-                          <CreditCard className="h-5 w-5 text-blue-500" />
-                          <span className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-                            {stripeSubscription?.current_period_end
-                              ? new Date(
-                                  stripeSubscription.current_period_end * 1000,
-                                ).toLocaleDateString("en-US", {
-                                  month: "short",
-                                  day: "numeric",
-                                  year: "numeric",
-                                })
-                              : subscriptionData?.created_at
-                                ? new Date(
-                                    new Date(
-                                      subscriptionData.created_at,
-                                    ).getTime() +
-                                      30 * 24 * 60 * 60 * 1000,
-                                  ).toLocaleDateString("en-US", {
-                                    month: "short",
-                                    day: "numeric",
-                                    year: "numeric",
-                                  })
-                                : "N/A"}
-                          </span>
-                        </div>
-                      )}
+                      <div className="flex items-center gap-2">
+                        <span className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                          0
+                        </span>
+                      </div>
                       <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                        {stripeSubscription?.status === "active" ||
-                        subscriptionData?.status === "active"
-                          ? `${stripeSubscription?.interval || "Monthly"} billing`
-                          : "No active billing"}
+                        Active numbers
                       </p>
                     </CardContent>
                   </Card>
 
-                  {/* Payment Amount Card */}
-                  <Card className="bg-white dark:bg-gray-800 hover:shadow-lg dark:hover:shadow-gray-900/20 transition-shadow duration-200 border-gray-200 dark:border-gray-700">
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                        Monthly Payment
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      {loadingStripeData ? (
-                        <div className="animate-pulse">
-                          <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded mb-2"></div>
-                          <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-16"></div>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-2">
-                          <span className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-                            {stripeSubscription?.amount
-                              ? new Intl.NumberFormat("en-US", {
-                                  style: "currency",
-                                  currency:
-                                    stripeSubscription.currency?.toUpperCase() ||
-                                    "USD",
-                                }).format(stripeSubscription.amount / 100)
-                              : subscriptionData?.plan_id === "starter"
-                                ? "$9.00"
-                                : subscriptionData?.plan_id === "business"
-                                  ? "$29.00"
-                                  : subscriptionData?.plan_id === "enterprise"
-                                    ? "$99.00"
-                                    : "$0.00"}
-                          </span>
-                        </div>
-                      )}
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                        {stripeSubscription?.interval
-                          ? `Per ${stripeSubscription.interval}`
-                          : stripeSubscription?.status === "active" ||
-                              subscriptionData?.status === "active"
-                            ? "Per month"
-                            : "No subscription"}
-                      </p>
-                    </CardContent>
-                  </Card>
-
-                  {/* Credits Usage Card */}
-                  <Card className="bg-white dark:bg-gray-800 hover:shadow-lg dark:hover:shadow-gray-900/20 transition-shadow duration-200 border-gray-200 dark:border-gray-700">
+                  <Card className="bg-white dark:bg-gray-800 hover:shadow-lg transition-shadow">
                     <CardHeader className="pb-3">
                       <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
                         Minutes Used
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
-                      {loadingStripeData ? (
-                        <div className="animate-pulse">
-                          <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded mb-2"></div>
-                          <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded"></div>
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
-                          <div className="flex justify-between items-center">
-                            <span className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-                              {stripeSubscription?.status === "active" ||
-                              subscriptionData?.plan_id
-                                ? "0%"
-                                : "N/A"}
-                            </span>
-                            <span className="text-sm text-gray-500 dark:text-gray-400">
-                              {stripeSubscription?.status === "active" ||
-                              subscriptionData?.plan_id
-                                ? subscriptionData?.plan_id === "starter"
-                                  ? "0/500"
-                                  : subscriptionData?.plan_id === "business"
-                                    ? "0/2000"
-                                    : subscriptionData?.plan_id === "enterprise"
-                                      ? "0/Unlimited"
-                                      : "0/500"
-                                : "No plan"}
-                            </span>
-                          </div>
-                          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                            <div
-                              className="bg-blue-500 dark:bg-blue-400 h-2 rounded-full transition-all duration-300"
-                              style={{ width: "0%" }}
-                            ></div>
-                          </div>
-                        </div>
-                      )}
+                      <div className="flex items-center gap-2">
+                        <span className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                          0
+                        </span>
+                      </div>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                        This month
+                      </p>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="bg-white dark:bg-gray-800 hover:shadow-lg transition-shadow">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                        Call Flows
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex items-center gap-2">
+                        <span className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                          0
+                        </span>
+                      </div>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                        Active flows
+                      </p>
                     </CardContent>
                   </Card>
                 </div>
@@ -806,7 +648,7 @@ const Home = () => {
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <Button
                       onClick={() => setActiveTab("Select Number")}
-                      className="h-16 bg-blue-600 hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-800 text-white rounded-xl flex flex-col items-center justify-center gap-2"
+                      className="h-16 bg-blue-600 hover:bg-blue-700 text-white rounded-xl flex flex-col items-center justify-center gap-2"
                     >
                       <span className="text-lg">📞</span>
                       <span>Get Phone Number</span>
@@ -814,7 +656,7 @@ const Home = () => {
                     <Button
                       onClick={() => setActiveTab("Call Flows")}
                       variant="outline"
-                      className="h-16 rounded-xl flex flex-col items-center justify-center gap-2 border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                      className="h-16 rounded-xl flex flex-col items-center justify-center gap-2"
                     >
                       <span className="text-lg">🔄</span>
                       <span>Setup Call Flows</span>
@@ -822,26 +664,12 @@ const Home = () => {
                     <Button
                       onClick={() => setActiveTab("Payment History")}
                       variant="outline"
-                      className="h-16 rounded-xl flex flex-col items-center justify-center gap-2 border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                      className="h-16 rounded-xl flex flex-col items-center justify-center gap-2"
                     >
                       <span className="text-lg">💳</span>
                       <span>View Payments</span>
                     </Button>
                   </div>
-                </div>
-
-                {/* Quick Start Button */}
-                <div className="text-center py-8">
-                  <Button
-                    onClick={() => setActiveTab("Select Number")}
-                    size="lg"
-                    className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 dark:from-blue-700 dark:to-purple-700 dark:hover:from-blue-800 dark:hover:to-purple-800 text-white px-8 py-4 text-lg rounded-xl shadow-lg"
-                  >
-                    🚀 Quick Start - Get Your First Number
-                  </Button>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
-                    Get started by selecting your first phone number
-                  </p>
                 </div>
               </div>
             )}

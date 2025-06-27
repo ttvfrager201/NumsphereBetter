@@ -205,14 +205,6 @@ const Sidebar = ({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 text-xs text-gray-600">
-                  <Clock size={12} />
-                  <span>
-                    Next billing:{" "}
-                    {formatDate(subscriptionInfo.current_period_end)}
-                  </span>
-                </div>
-
                 <Button
                   size="sm"
                   variant="outline"
@@ -220,7 +212,7 @@ const Sidebar = ({
                   onClick={() => onItemClick("Change Plan")}
                 >
                   <CreditCard size={12} className="mr-1" />
-                  Change Plan
+                  Manage Plan
                 </Button>
               </div>
             </div>

@@ -1,13 +1,9 @@
 import Stripe from "https://esm.sh/stripe@14.21.0";
 
-Deno.serve(async (req) => {
-  const corsHeaders = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers":
-      "authorization, x-client-info, apikey, content-type",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-  };
+import { corsHeaders } from "@shared/cors.ts";
+import { createSupabaseClient } from "@shared/stripe-helpers.ts";
 
+Deno.serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
     return new Response(null, {
@@ -123,6 +119,8 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Verification only - webhook handles all database updates
+    // This function just confirms the payment was successful
     return new Response(
       JSON.stringify({
         success: true,
@@ -130,6 +128,8 @@ Deno.serve(async (req) => {
         subscriptionId: session.subscription?.id || session.subscription,
         customerId: session.customer,
         sessionId: session.id,
+        message:
+          "Payment verified. Subscription status will be updated via webhook.",
       }),
       {
         status: 200,

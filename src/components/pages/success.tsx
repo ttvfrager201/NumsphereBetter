@@ -9,28 +9,24 @@ export default function Success() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Since webhooks handle payment processing, we just need to refresh payment status
-    const refreshPaymentStatus = async () => {
-      console.log("Refreshing payment status after successful payment...");
-
-      // Wait a moment for webhooks to process
+    // Wait for webhook processing then redirect
+    const handleSuccess = async () => {
+      // Wait longer for webhook to process subscription
       setTimeout(async () => {
         await checkPaymentStatus();
-        console.log("Payment status refreshed");
-      }, 1000);
+      }, 2000);
 
       // Clean up session storage
       sessionStorage.removeItem("selectedPlan");
       sessionStorage.removeItem("userId");
 
-      // Auto-redirect to dashboard after 3 seconds
+      // Auto-redirect to dashboard after webhook processing
       setTimeout(() => {
-        console.log("Redirecting to dashboard...");
         navigate("/dashboard", { replace: true });
-      }, 3000);
+      }, 4000);
     };
 
-    refreshPaymentStatus();
+    handleSuccess();
   }, [checkPaymentStatus, navigate]);
 
   return (
@@ -62,8 +58,8 @@ export default function Success() {
           transition={{ delay: 0.6 }}
           className="text-gray-600 mb-6"
         >
-          Welcome to NumSphere! Your subscription is now active. You can now
-          access your dashboard and add phone numbers when needed.
+          Welcome to NumSphere! Your subscription is now active. You'll be
+          redirected to your dashboard shortly.
         </motion.p>
         <motion.div
           initial={{ opacity: 0 }}
