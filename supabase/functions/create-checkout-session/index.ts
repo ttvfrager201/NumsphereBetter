@@ -1,15 +1,19 @@
 import Stripe from "https://esm.sh/stripe@14.21.0";
 
-// CORS headers
+// CORS headers - All restrictions removed
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "*",
+  "Access-Control-Allow-Methods": "*",
+  "Access-Control-Max-Age": "86400",
 };
 
 // Configuration utilities
 function getFrontendBaseUrl(): string {
-  return "https://boring-banach8-97srj.view-3.tempo-dev.app";
+  // Use the hardcoded URL for your Tempo deployment
+  const baseUrl = "https://festive-archimedes4-plpw3.view-3.tempo-dev.app";
+  console.log("Using frontend base URL:", baseUrl);
+  return baseUrl;
 }
 
 function logConfig(context: string): void {
@@ -23,14 +27,11 @@ function logConfig(context: string): void {
 }
 
 Deno.serve(async (req) => {
-  // Log configuration for debugging
-  logConfig("create-checkout-session");
-
   // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
-    return new Response("ok", {
+    return new Response(null, {
+      status: 204,
       headers: corsHeaders,
-      status: 200,
     });
   }
 
@@ -61,19 +62,11 @@ Deno.serve(async (req) => {
     );
   }
 
-  // Updated price IDs - make sure these match your Stripe dashboard
   const planPriceMap: Record<string, string> = {
     starter: "price_1RcsXnB6b7vINOBHFKemTArF",
     business: "price_1RdKsrB6b7vINOBHH5zkVavh",
     enterprise: "price_1RdKtCB6b7vINOBHAJNJibdz",
   };
-
-  console.log(
-    "Creating checkout session for plan:",
-    planId,
-    "with price:",
-    planPriceMap[planId as keyof typeof planPriceMap],
-  );
 
   const priceId = planPriceMap[planId as keyof typeof planPriceMap];
   if (!priceId) {
@@ -99,21 +92,7 @@ Deno.serve(async (req) => {
   const stripe = new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" });
 
   try {
-    // Get the frontend base URL
     const frontendUrl = getFrontendBaseUrl();
-
-    console.log(`[create-checkout-session] Using frontend URL: ${frontendUrl}`);
-    console.log(
-      `[create-checkout-session] Creating checkout session for plan: ${planId}, user: ${userId}`,
-    );
-    console.log(`[create-checkout-session] Price ID: ${priceId}`);
-    console.log(`[create-checkout-session] Customer email: ${userEmail}`);
-    console.log(
-      `[create-checkout-session] Success URL: ${frontendUrl}/success`,
-    );
-    console.log(
-      `[create-checkout-session] Cancel URL: ${frontendUrl}/plan-selection`,
-    );
 
     const checkoutSession = await stripe.checkout.sessions.create({
       mode: "subscription",
@@ -145,7 +124,10 @@ Deno.serve(async (req) => {
       },
     });
 
-    console.log("Checkout session created successfully:", checkoutSession.id);
+    console.log("Checkout session created successfully:", {
+      sessionId: checkoutSession.id,
+      url: checkoutSession.url,
+    });
 
     return new Response(
       JSON.stringify({
@@ -158,9 +140,12 @@ Deno.serve(async (req) => {
       },
     );
   } catch (err) {
-    console.error("Stripe checkout session error:", err.message);
+    console.error("Stripe checkout session error:", err.message, err.stack);
     return new Response(
-      JSON.stringify({ error: "Failed to create checkout session" }),
+      JSON.stringify({
+        error: "Failed to create checkout session",
+        details: err.message,
+      }),
       {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
