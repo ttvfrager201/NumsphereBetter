@@ -3,23 +3,89 @@ import {
   verifyStripeWebhook,
   createSupabaseClient,
 } from "@shared/stripe-helpers.ts";
+import {
+  validateEnvironment,
+  logSecurityEvent,
+  detectSuspiciousActivity,
+  webhookRateLimiter,
+} from "@shared/security.ts";
 
-// Store processed events to prevent duplicate processing
-const processedEvents = new Map<string, number>();
-const CLEANUP_INTERVAL = 1000 * 60 * 60; // 1 hour
-const MAX_EVENT_AGE = 1000 * 60 * 60 * 24; // 24 hours
+// Store processed events to prevent duplicate processing with better memory management
+const processedEvents = new Map<
+  string,
+  { timestamp: number; attempts: number }
+>();
+const CLEANUP_INTERVAL = 1000 * 60 * 30; // 30 minutes
+const MAX_EVENT_AGE = 1000 * 60 * 60 * 12; // 12 hours
+const MAX_RETRY_ATTEMPTS = 3;
+const RATE_LIMIT_WINDOW = 1000 * 60 * 5; // 5 minutes
+const MAX_EVENTS_PER_WINDOW = 100;
 
-// Cleanup old processed events periodically
+// Enhanced cleanup with memory limits
 setInterval(() => {
   const now = Date.now();
-  for (const [eventId, timestamp] of processedEvents.entries()) {
-    if (now - timestamp > MAX_EVENT_AGE) {
+  let cleanedCount = 0;
+
+  for (const [eventId, data] of processedEvents.entries()) {
+    if (now - data.timestamp > MAX_EVENT_AGE) {
       processedEvents.delete(eventId);
+      cleanedCount++;
     }
+  }
+
+  // Force cleanup if map gets too large
+  if (processedEvents.size > 10000) {
+    const entries = Array.from(processedEvents.entries())
+      .sort((a, b) => a[1].timestamp - b[1].timestamp)
+      .slice(0, 5000);
+    processedEvents.clear();
+    entries.forEach(([id, data]) => processedEvents.set(id, data));
+  }
+
+  if (cleanedCount > 0) {
+    console.log(
+      `[webhook-cleanup] Cleaned ${cleanedCount} old events, ${processedEvents.size} remaining`,
+    );
   }
 }, CLEANUP_INTERVAL);
 
+// Rate limiting for webhook requests
+const requestCounts = new Map<string, { count: number; windowStart: number }>();
+
+function checkRateLimit(clientIp: string): boolean {
+  const now = Date.now();
+  const clientData = requestCounts.get(clientIp);
+
+  if (!clientData || now - clientData.windowStart > RATE_LIMIT_WINDOW) {
+    requestCounts.set(clientIp, { count: 1, windowStart: now });
+    return true;
+  }
+
+  if (clientData.count >= MAX_EVENTS_PER_WINDOW) {
+    return false;
+  }
+
+  clientData.count++;
+  return true;
+}
+
 Deno.serve(async (req) => {
+  // Validate environment on startup
+  const envValidation = validateEnvironment();
+  if (!envValidation.valid) {
+    console.error(
+      "[webhook] Missing required environment variables:",
+      envValidation.missing,
+    );
+    return new Response(
+      JSON.stringify({ error: "Service configuration error" }),
+      {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
+    );
+  }
+
   // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
     return new Response(null, {
@@ -37,65 +103,195 @@ Deno.serve(async (req) => {
   }
 
   const startTime = Date.now();
+  const requestId = crypto.randomUUID();
+  const clientIp =
+    req.headers.get("x-forwarded-for") ||
+    req.headers.get("x-real-ip") ||
+    "unknown";
+  const userAgent = req.headers.get("user-agent") || "";
+
+  // Enhanced rate limiting
+  if (!webhookRateLimiter.isAllowed(clientIp)) {
+    logSecurityEvent(
+      "webhook_rate_limit_exceeded",
+      {
+        ip: clientIp,
+        userAgent,
+        requestId,
+      },
+      "medium",
+    );
+
+    console.warn(
+      `[webhook] [${requestId}] Rate limit exceeded for IP: ${clientIp}`,
+    );
+    return new Response(
+      JSON.stringify({
+        error: "Rate limit exceeded",
+        retry_after: 60,
+      }),
+      {
+        status: 429,
+        headers: {
+          ...corsHeaders,
+          "Content-Type": "application/json",
+          "Retry-After": "60",
+        },
+      },
+    );
+  }
+
   let event;
+  let body: string;
 
   try {
+    // Get request body
+    body = await req.text();
+
+    // Detect suspicious activity
+    const suspiciousCheck = detectSuspiciousActivity({
+      ip: clientIp,
+      userAgent,
+      path: new URL(req.url).pathname,
+      method: req.method,
+      body: body.substring(0, 1000), // Only check first 1KB for performance
+    });
+
+    if (suspiciousCheck.suspicious) {
+      logSecurityEvent(
+        "suspicious_webhook_request",
+        {
+          ip: clientIp,
+          userAgent,
+          reasons: suspiciousCheck.reasons,
+          requestId,
+        },
+        "high",
+      );
+
+      console.warn(
+        `[webhook] [${requestId}] Suspicious request detected:`,
+        suspiciousCheck.reasons,
+      );
+      return new Response(JSON.stringify({ error: "Request rejected" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // Verify webhook signature first (security)
-    const body = await req.text();
     event = verifyStripeWebhook(req, body);
 
-    // Idempotency check - prevent duplicate processing
-    if (processedEvents.has(event.id)) {
-      console.log(`Event ${event.id} already processed, skipping`);
-      return new Response(
-        JSON.stringify({ received: true, status: "already_processed" }),
-        {
-          status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        },
+    // Enhanced idempotency check with retry logic
+    const eventData = processedEvents.get(event.id);
+    if (eventData) {
+      if (eventData.attempts >= MAX_RETRY_ATTEMPTS) {
+        console.log(
+          `[${requestId}] Event ${event.id} already processed ${eventData.attempts} times, skipping`,
+        );
+        return new Response(
+          JSON.stringify({
+            received: true,
+            status: "already_processed",
+            attempts: eventData.attempts,
+          }),
+          {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
+      }
+      // Allow retry for failed events
+      eventData.attempts++;
+      console.log(
+        `[${requestId}] Retrying event ${event.id}, attempt ${eventData.attempts}`,
       );
+    } else {
+      // Mark event as being processed
+      processedEvents.set(event.id, { timestamp: Date.now(), attempts: 1 });
     }
 
     console.log(
-      `[${new Date().toISOString()}] Processing webhook: ${event.type} (${event.id})`,
+      `[${new Date().toISOString()}] [${requestId}] Processing webhook: ${event.type} (${event.id})`,
     );
 
-    // Mark event as being processed
-    processedEvents.set(event.id, Date.now());
+    // Log webhook event to database
+    const supabase = createSupabaseClient();
+    await supabase
+      .from("webhook_events_log")
+      .insert({
+        event_id: event.id,
+        event_type: event.type,
+        source: "stripe",
+        status: "processing",
+        payload: event.data,
+        created_at: new Date().toISOString(),
+      })
+      .catch((err) => {
+        console.warn(
+          `[${requestId}] Failed to log webhook event:`,
+          err.message,
+        );
+      });
 
     // Handle comprehensive set of events for professional SaaS
     switch (event.type) {
+      // Critical subscription events
       case "customer.subscription.created":
       case "customer.subscription.updated":
-        await handleSubscriptionChange(event.data.object, event.type);
+        await handleSubscriptionChange(
+          event.data.object,
+          event.type,
+          requestId,
+        );
         break;
 
       case "customer.subscription.deleted":
-        await handleSubscriptionCanceled(event.data.object);
+        await handleSubscriptionCanceled(event.data.object, requestId);
         break;
 
+      // Payment events
       case "invoice.payment_succeeded":
-        await handlePaymentSuccess(event.data.object);
+        await handlePaymentSuccess(event.data.object, requestId);
         break;
 
       case "invoice.payment_failed":
-        await handlePaymentFailed(event.data.object);
+        await handlePaymentFailed(event.data.object, requestId);
         break;
 
+      case "invoice.payment_action_required":
+        await handlePaymentActionRequired(event.data.object, requestId);
+        break;
+
+      // Subscription lifecycle events
       case "customer.subscription.trial_will_end":
-        await handleTrialWillEnd(event.data.object);
+        await handleTrialWillEnd(event.data.object, requestId);
         break;
 
       case "invoice.upcoming":
-        await handleUpcomingInvoice(event.data.object);
+        await handleUpcomingInvoice(event.data.object, requestId);
         break;
 
       case "customer.subscription.paused":
-        await handleSubscriptionPaused(event.data.object);
+        await handleSubscriptionPaused(event.data.object, requestId);
         break;
 
       case "customer.subscription.resumed":
-        await handleSubscriptionResumed(event.data.object);
+        await handleSubscriptionResumed(event.data.object, requestId);
+        break;
+
+      // Security events
+      case "radar.early_fraud_warning.created":
+        await handleFraudWarning(event.data.object, requestId);
+        break;
+
+      case "customer.subscription.pending_update_applied":
+      case "customer.subscription.pending_update_expired":
+        await handleSubscriptionPendingUpdate(
+          event.data.object,
+          event.type,
+          requestId,
+        );
         break;
 
       default:
@@ -106,14 +302,38 @@ Deno.serve(async (req) => {
 
     const processingTime = Date.now() - startTime;
     console.log(
-      `[${new Date().toISOString()}] Successfully processed ${event.type} in ${processingTime}ms`,
+      `[${new Date().toISOString()}] [${requestId}] Successfully processed ${event.type} in ${processingTime}ms`,
     );
+
+    // Mark as successfully processed
+    const eventRecord = processedEvents.get(event.id);
+    if (eventRecord) {
+      eventRecord.timestamp = Date.now();
+    }
+
+    // Update webhook event log
+    await supabase
+      .from("webhook_events_log")
+      .update({
+        status: "completed",
+        processing_time_ms: processingTime,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("event_id", event.id)
+      .catch((err) => {
+        console.warn(
+          `[${requestId}] Failed to update webhook event log:`,
+          err.message,
+        );
+      });
 
     return new Response(
       JSON.stringify({
         received: true,
         event_type: event.type,
         processing_time_ms: processingTime,
+        request_id: requestId,
+        event_id: event.id,
       }),
       {
         status: 200,
@@ -123,47 +343,112 @@ Deno.serve(async (req) => {
   } catch (error) {
     const processingTime = Date.now() - startTime;
     console.error(
-      `[${new Date().toISOString()}] Webhook error after ${processingTime}ms:`,
+      `[${new Date().toISOString()}] [${requestId}] Webhook error after ${processingTime}ms:`,
       {
         error: error.message,
         stack: error.stack,
         event_id: event?.id,
         event_type: event?.type,
+        request_id: requestId,
+        client_ip: clientIp,
       },
     );
 
-    // Remove from processed events if processing failed
+    // Log security event for webhook failures
+    logSecurityEvent(
+      "webhook_processing_failed",
+      {
+        eventId: event?.id,
+        eventType: event?.type,
+        error: error.message,
+        ip: clientIp,
+        userAgent,
+        requestId,
+      },
+      "medium",
+    );
+
+    // Update webhook event log with failure
     if (event?.id) {
-      processedEvents.delete(event.id);
+      const supabase = createSupabaseClient();
+      await supabase
+        .from("webhook_events_log")
+        .update({
+          status: "failed",
+          error_message: error.message,
+          processing_time_ms: processingTime,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("event_id", event.id)
+        .catch((err) => {
+          console.warn(
+            `[${requestId}] Failed to update webhook event log:`,
+            err.message,
+          );
+        });
     }
+
+    // Don't remove from processed events on failure - let retry logic handle it
+    // This prevents infinite retries of the same failing event
 
     return new Response(
       JSON.stringify({
         error: "Webhook processing failed",
         event_id: event?.id,
         processing_time_ms: processingTime,
+        request_id: requestId,
+        retry_after: 300, // Suggest 5 minute retry delay
       }),
       {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 500, // Use 500 for server errors, 400 for client errors
+        headers: {
+          ...corsHeaders,
+          "Content-Type": "application/json",
+          "Retry-After": "300",
+        },
       },
     );
   }
 });
 
-// Handle subscription creation/updates
-async function handleSubscriptionChange(subscription: any, eventType: string) {
+// Handle subscription creation/updates with enhanced security
+async function handleSubscriptionChange(
+  subscription: any,
+  eventType: string,
+  requestId: string,
+) {
   const userId = subscription.metadata?.user_id;
   const planId = subscription.metadata?.plan_id;
 
+  // Enhanced validation
   if (!userId || !planId) {
-    console.error(`[${eventType}] Missing user_id or plan_id in metadata`, {
-      userId,
-      planId,
-      metadata: subscription.metadata,
-      subscription_id: subscription.id,
-    });
+    console.error(
+      `[${eventType}] [${requestId}] Missing user_id or plan_id in metadata`,
+      {
+        userId,
+        planId,
+        metadata: subscription.metadata,
+        subscription_id: subscription.id,
+      },
+    );
     throw new Error("Missing required metadata");
+  }
+
+  // Validate UUID format for user_id
+  const uuidRegex =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  if (!uuidRegex.test(userId)) {
+    console.error(
+      `[${eventType}] [${requestId}] Invalid user_id format: ${userId}`,
+    );
+    throw new Error("Invalid user_id format");
+  }
+
+  // Validate plan_id
+  const validPlans = ["starter", "business", "enterprise"];
+  if (!validPlans.includes(planId)) {
+    console.error(`[${eventType}] [${requestId}] Invalid plan_id: ${planId}`);
+    throw new Error("Invalid plan_id");
   }
 
   const supabase = createSupabaseClient();
@@ -172,7 +457,7 @@ async function handleSubscriptionChange(subscription: any, eventType: string) {
 
   try {
     console.log(
-      `[${eventType}] Processing subscription change for user ${userId}, plan ${planId}, status ${subscription.status}`,
+      `[${eventType}] [${requestId}] Processing subscription change for user ${userId}, plan ${planId}, status ${subscription.status}`,
     );
 
     // Start transaction-like operations
@@ -287,7 +572,10 @@ async function handleSubscriptionChange(subscription: any, eventType: string) {
 }
 
 // Handle subscription cancellation
-async function handleSubscriptionCanceled(subscription: any) {
+async function handleSubscriptionCanceled(
+  subscription: any,
+  requestId: string,
+) {
   const supabase = createSupabaseClient();
   const timestamp = new Date().toISOString();
 
@@ -416,7 +704,7 @@ async function handleSubscriptionCanceled(subscription: any) {
 }
 
 // Handle successful payments
-async function handlePaymentSuccess(invoice: any) {
+async function handlePaymentSuccess(invoice: any, requestId: string) {
   if (!invoice.subscription) {
     console.log(
       `[payment_succeeded] No subscription found in invoice ${invoice.id}, skipping payment success handling`,
@@ -551,7 +839,7 @@ async function handlePaymentSuccess(invoice: any) {
 }
 
 // Handle payment failures
-async function handlePaymentFailed(invoice: any) {
+async function handlePaymentFailed(invoice: any, requestId: string) {
   if (!invoice.subscription) {
     console.log(
       `[payment_failed] No subscription found in invoice ${invoice.id}`,
@@ -596,7 +884,7 @@ async function handlePaymentFailed(invoice: any) {
 }
 
 // Handle trial ending soon
-async function handleTrialWillEnd(subscription: any) {
+async function handleTrialWillEnd(subscription: any, requestId: string) {
   const userId = subscription.metadata?.user_id;
   const planId = subscription.metadata?.plan_id;
 
@@ -616,7 +904,7 @@ async function handleTrialWillEnd(subscription: any) {
 }
 
 // Handle upcoming invoice
-async function handleUpcomingInvoice(invoice: any) {
+async function handleUpcomingInvoice(invoice: any, requestId: string) {
   if (!invoice.subscription) {
     return;
   }
@@ -646,7 +934,7 @@ async function handleUpcomingInvoice(invoice: any) {
 }
 
 // Handle subscription paused
-async function handleSubscriptionPaused(subscription: any) {
+async function handleSubscriptionPaused(subscription: any, requestId: string) {
   const userId = subscription.metadata?.user_id;
   const planId = subscription.metadata?.plan_id;
 
@@ -675,7 +963,7 @@ async function handleSubscriptionPaused(subscription: any) {
 }
 
 // Handle subscription resumed
-async function handleSubscriptionResumed(subscription: any) {
+async function handleSubscriptionResumed(subscription: any, requestId: string) {
   const userId = subscription.metadata?.user_id;
   const planId = subscription.metadata?.plan_id;
 
@@ -705,21 +993,116 @@ async function handleSubscriptionResumed(subscription: any) {
   }
 }
 
-// Send subscription notifications (placeholder for future email/notification system)
+// Handle payment action required
+async function handlePaymentActionRequired(invoice: any, requestId: string) {
+  if (!invoice.subscription) {
+    console.log(
+      `[payment_action_required] [${requestId}] No subscription found in invoice ${invoice.id}`,
+    );
+    return;
+  }
+
+  const supabase = createSupabaseClient();
+
+  try {
+    const { data } = await supabase
+      .from("user_subscriptions")
+      .select("user_id, plan_id")
+      .eq("stripe_subscription_id", invoice.subscription)
+      .single();
+
+    if (data?.user_id) {
+      console.log(
+        `[payment_action_required] [${requestId}] Payment action required for user ${data.user_id}`,
+      );
+      await sendSubscriptionNotification(
+        data.user_id,
+        "payment_action_required",
+        data.plan_id,
+        requestId,
+      );
+    }
+  } catch (error) {
+    console.error(`[payment_action_required] [${requestId}] Error:`, error);
+  }
+}
+
+// Handle fraud warnings
+async function handleFraudWarning(warning: any, requestId: string) {
+  console.warn(`[fraud_warning] [${requestId}] Fraud warning received:`, {
+    id: warning.id,
+    charge: warning.charge,
+    fraud_type: warning.fraud_type,
+  });
+
+  // TODO: Implement fraud handling logic
+  // - Suspend user account
+  // - Send alert to admin
+  // - Log security event
+}
+
+// Handle subscription pending updates
+async function handleSubscriptionPendingUpdate(
+  subscription: any,
+  eventType: string,
+  requestId: string,
+) {
+  const userId = subscription.metadata?.user_id;
+  const planId = subscription.metadata?.plan_id;
+
+  if (!userId) return;
+
+  try {
+    console.log(
+      `[${eventType}] [${requestId}] Pending update for user ${userId}`,
+    );
+    await sendSubscriptionNotification(
+      userId,
+      eventType.replace("customer.subscription.", ""),
+      planId,
+      requestId,
+    );
+  } catch (error) {
+    console.error(`[${eventType}] [${requestId}] Error:`, error);
+  }
+}
+
+// Enhanced notification system with security logging
 async function sendSubscriptionNotification(
   userId: string,
   eventType: string,
   planId: string,
+  requestId: string,
 ) {
   try {
     console.log(
-      `[notification] ${eventType} notification for user ${userId} on ${planId} plan`,
+      `[notification] [${requestId}] ${eventType} notification for user ${userId} on ${planId} plan`,
     );
-    // TODO: Implement email notifications, in-app notifications, etc.
-    // This could integrate with services like SendGrid, Resend, or your notification system
+
+    // Log security-relevant events
+    const securityEvents = [
+      "subscription_canceled",
+      "payment_failed",
+      "payment_action_required",
+      "fraud_warning",
+    ];
+
+    if (securityEvents.includes(eventType)) {
+      console.warn(
+        `[security] [${requestId}] Security event: ${eventType} for user ${userId}`,
+      );
+      // TODO: Send to security monitoring system
+    }
+
+    // TODO: Implement comprehensive notification system
+    // - Email notifications via SendGrid/Resend
+    // - In-app notifications
+    // - SMS for critical events
+    // - Webhook notifications to customer systems
+    // - Slack/Discord notifications for admin events
   } catch (error) {
     console.error(
-      `[notification] Error sending ${eventType} notification:`,
+      `[notification] [${requestId}] Error sending ${eventType} notification:`,
       error,
     );
   }

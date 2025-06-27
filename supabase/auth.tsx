@@ -117,12 +117,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signUp = async (email: string, password: string, fullName: string) => {
+    // Enhanced input validation
+    if (!email || !password || !fullName) {
+      throw new Error("All fields are required");
+    }
+
+    // Email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      throw new Error("Invalid email format");
+    }
+
+    // Password strength validation
+    if (password.length < 8) {
+      throw new Error("Password must be at least 8 characters long");
+    }
+
+    if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(password)) {
+      throw new Error(
+        "Password must contain at least one uppercase letter, one lowercase letter, and one number",
+      );
+    }
+
+    // Name validation
+    if (fullName.trim().length < 2) {
+      throw new Error("Full name must be at least 2 characters long");
+    }
+
+    // Sanitize full name
+    const sanitizedName = fullName.trim().replace(/[<>"'&]/g, "");
+
     const { data, error } = await supabase.auth.signUp({
-      email,
+      email: email.toLowerCase().trim(),
       password,
       options: {
         data: {
-          full_name: fullName,
+          full_name: sanitizedName,
         },
         emailRedirectTo: `${window.location.origin}/dashboard`,
       },
@@ -132,41 +162,93 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const generateDeviceFingerprint = (): string => {
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d");
-    if (ctx) {
-      ctx.textBaseline = "top";
-      ctx.font = "14px Arial";
-      ctx.fillText("Device fingerprint", 2, 2);
-    }
+    try {
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      let canvasFingerprint = "";
 
-    const fingerprint = [
-      navigator.userAgent,
-      navigator.language,
-      screen.width + "x" + screen.height,
-      new Date().getTimezoneOffset(),
-      canvas.toDataURL(),
-    ].join("|");
+      if (ctx) {
+        ctx.textBaseline = "top";
+        ctx.font = "14px Arial";
+        ctx.fillText("Device fingerprint", 2, 2);
+        canvasFingerprint = canvas.toDataURL();
+      }
 
-    // Simple hash function
-    let hash = 0;
-    for (let i = 0; i < fingerprint.length; i++) {
-      const char = fingerprint.charCodeAt(i);
-      hash = (hash << 5) - hash + char;
-      hash = hash & hash; // Convert to 32-bit integer
+      // Enhanced fingerprinting with more data points
+      const fingerprint = [
+        navigator.userAgent || "",
+        navigator.language || "",
+        navigator.languages?.join(",") || "",
+        screen.width + "x" + screen.height,
+        screen.colorDepth || "",
+        new Date().getTimezoneOffset(),
+        navigator.platform || "",
+        navigator.cookieEnabled ? "1" : "0",
+        navigator.doNotTrack || "",
+        canvasFingerprint,
+        // Add WebGL fingerprint if available
+        getWebGLFingerprint(),
+      ].join("|");
+
+      // Enhanced hash function (FNV-1a)
+      let hash = 2166136261;
+      for (let i = 0; i < fingerprint.length; i++) {
+        hash ^= fingerprint.charCodeAt(i);
+        hash *= 16777619;
+        hash = hash >>> 0; // Convert to 32-bit unsigned integer
+      }
+
+      return hash.toString(36);
+    } catch (error) {
+      console.error("Error generating device fingerprint:", error);
+      // Fallback fingerprint
+      return (Date.now() + Math.random()).toString(36);
     }
-    return Math.abs(hash).toString(36);
+  };
+
+  const getWebGLFingerprint = (): string => {
+    try {
+      const canvas = document.createElement("canvas");
+      const gl =
+        canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
+      if (!gl) return "";
+
+      const renderer = gl.getParameter(gl.RENDERER);
+      const vendor = gl.getParameter(gl.VENDOR);
+      return `${vendor}|${renderer}`;
+    } catch (error) {
+      return "";
+    }
   };
 
   const checkDeviceStatus = async (email: string): Promise<boolean> => {
     try {
+      // Input validation
+      if (!email) {
+        console.log("No email provided, requiring OTP");
+        return true;
+      }
+
       const deviceFingerprint = generateDeviceFingerprint();
 
-      // Get user by email first
+      // Rate limiting for device checks
+      const checkKey = `device_check_${email}`;
+      const lastCheck = localStorage.getItem(checkKey);
+      const nowDate = new Date();
+
+      if (lastCheck && nowDate - parseInt(lastCheck) < 5000) {
+        // 5 second rate limit
+        console.log("Device check rate limited");
+        return true;
+      }
+
+      localStorage.setItem(checkKey, nowDate.toString());
+
+      // Get user by email first with enhanced error handling
       const { data: userData, error: userError } = await supabase
         .from("users")
         .select("id, requires_otp_verification, last_otp_verification")
-        .eq("email", email)
+        .eq("email", email.toLowerCase().trim())
         .single();
 
       if (userError || !userData) {
@@ -180,10 +262,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return true;
       }
 
-      // Check if device is trusted
+      // Check if device is trusted with additional security checks
       const { data: deviceData, error: deviceError } = await supabase
         .from("user_devices")
-        .select("is_trusted, expires_at")
+        .select("is_trusted, expires_at, last_login, created_at")
         .eq("user_id", userData.id)
         .eq("device_fingerprint", deviceFingerprint)
         .eq("is_trusted", true)
@@ -194,13 +276,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return true; // New device, require OTP
       }
 
-      // Check if device trust has expired
-      const now = new Date();
+      // Enhanced device trust validation
+      const currentDate = new Date();
       const expiresAt = new Date(deviceData.expires_at);
+      const lastLogin = new Date(
+        deviceData.last_login || deviceData.created_at,
+      );
 
-      if (now > expiresAt) {
+      // Check if device trust has expired
+      if (currentDate > expiresAt) {
         console.log("Device trust expired, requires OTP");
         // Remove expired device trust
+        await supabase
+          .from("user_devices")
+          .delete()
+          .eq("user_id", userData.id)
+          .eq("device_fingerprint", deviceFingerprint);
+        return true;
+      }
+
+      // Check if device hasn't been used for too long (30 days)
+      const daysSinceLastLogin =
+        (currentDate.getTime() - lastLogin.getTime()) / (1000 * 60 * 60 * 24);
+
+      if (daysSinceLastLogin > 30) {
+        console.log("Device inactive for too long, requires OTP");
         await supabase
           .from("user_devices")
           .delete()
@@ -222,6 +322,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     password: string,
   ): Promise<{ requiresOtp: boolean }> => {
     try {
+      // Input validation
+      if (!email || !password) {
+        throw new Error("Email and password are required");
+      }
+
+      // Basic email format validation
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        throw new Error("Invalid email format");
+      }
+
+      // Password strength check
+      if (password.length < 8) {
+        throw new Error("Password must be at least 8 characters long");
+      }
+
       // Check device status first to avoid unnecessary auth calls
       const requiresOtp = await checkDeviceStatus(email);
 

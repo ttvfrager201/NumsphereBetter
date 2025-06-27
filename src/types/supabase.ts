@@ -116,6 +116,134 @@ export type Database = {
         }
         Relationships: []
       }
+      failed_login_attempts: {
+        Row: {
+          attempt_count: number | null
+          blocked_until: string | null
+          created_at: string | null
+          email: string
+          first_attempt_at: string | null
+          id: string
+          ip_address: unknown
+          last_attempt_at: string | null
+          updated_at: string | null
+          user_agent: string | null
+        }
+        Insert: {
+          attempt_count?: number | null
+          blocked_until?: string | null
+          created_at?: string | null
+          email: string
+          first_attempt_at?: string | null
+          id?: string
+          ip_address: unknown
+          last_attempt_at?: string | null
+          updated_at?: string | null
+          user_agent?: string | null
+        }
+        Update: {
+          attempt_count?: number | null
+          blocked_until?: string | null
+          created_at?: string | null
+          email?: string
+          first_attempt_at?: string | null
+          id?: string
+          ip_address?: unknown
+          last_attempt_at?: string | null
+          updated_at?: string | null
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
+      security_audit_log: {
+        Row: {
+          created_at: string | null
+          event_details: Json | null
+          event_type: string
+          id: string
+          ip_address: unknown | null
+          severity: string | null
+          source: string | null
+          user_agent: string | null
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          event_details?: Json | null
+          event_type: string
+          id?: string
+          ip_address?: unknown | null
+          severity?: string | null
+          source?: string | null
+          user_agent?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          event_details?: Json | null
+          event_type?: string
+          id?: string
+          ip_address?: unknown | null
+          severity?: string | null
+          source?: string | null
+          user_agent?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      subscription_history: {
+        Row: {
+          change_reason: string | null
+          changed_by: string | null
+          created_at: string | null
+          id: string
+          metadata: Json | null
+          new_plan_id: string | null
+          new_status: string | null
+          old_plan_id: string | null
+          old_status: string | null
+          stripe_event_id: string | null
+          subscription_id: string | null
+          user_id: string | null
+        }
+        Insert: {
+          change_reason?: string | null
+          changed_by?: string | null
+          created_at?: string | null
+          id?: string
+          metadata?: Json | null
+          new_plan_id?: string | null
+          new_status?: string | null
+          old_plan_id?: string | null
+          old_status?: string | null
+          stripe_event_id?: string | null
+          subscription_id?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          change_reason?: string | null
+          changed_by?: string | null
+          created_at?: string | null
+          id?: string
+          metadata?: Json | null
+          new_plan_id?: string | null
+          new_status?: string | null
+          old_plan_id?: string | null
+          old_status?: string | null
+          stripe_event_id?: string | null
+          subscription_id?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "subscription_history_subscription_id_fkey"
+            columns: ["subscription_id"]
+            isOneToOne: false
+            referencedRelation: "user_subscriptions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       twilio_numbers: {
         Row: {
           created_at: string | null
@@ -167,6 +295,9 @@ export type Database = {
           id: string
           is_trusted: boolean | null
           last_login: string | null
+          last_security_check: string | null
+          risk_factors: Json | null
+          security_score: number | null
           user_id: string | null
         }
         Insert: {
@@ -177,6 +308,9 @@ export type Database = {
           id?: string
           is_trusted?: boolean | null
           last_login?: string | null
+          last_security_check?: string | null
+          risk_factors?: Json | null
+          security_score?: number | null
           user_id?: string | null
         }
         Update: {
@@ -187,41 +321,65 @@ export type Database = {
           id?: string
           is_trusted?: boolean | null
           last_login?: string | null
+          last_security_check?: string | null
+          risk_factors?: Json | null
+          security_score?: number | null
           user_id?: string | null
         }
         Relationships: []
       }
       user_subscriptions: {
         Row: {
+          cancel_at_period_end: boolean | null
+          canceled_at: string | null
           created_at: string | null
+          current_period_end: string | null
+          current_period_start: string | null
           id: string
+          last_payment_date: string | null
+          last_updated_by: string | null
           plan_id: string
           status: string | null
           stripe_checkout_session_id: string | null
           stripe_customer_id: string | null
           stripe_subscription_id: string | null
+          trial_end: string | null
           updated_at: string | null
           user_id: string | null
         }
         Insert: {
+          cancel_at_period_end?: boolean | null
+          canceled_at?: string | null
           created_at?: string | null
+          current_period_end?: string | null
+          current_period_start?: string | null
           id?: string
+          last_payment_date?: string | null
+          last_updated_by?: string | null
           plan_id: string
           status?: string | null
           stripe_checkout_session_id?: string | null
           stripe_customer_id?: string | null
           stripe_subscription_id?: string | null
+          trial_end?: string | null
           updated_at?: string | null
           user_id?: string | null
         }
         Update: {
+          cancel_at_period_end?: boolean | null
+          canceled_at?: string | null
           created_at?: string | null
+          current_period_end?: string | null
+          current_period_start?: string | null
           id?: string
+          last_payment_date?: string | null
+          last_updated_by?: string | null
           plan_id?: string
           status?: string | null
           stripe_checkout_session_id?: string | null
           stripe_customer_id?: string | null
           stripe_subscription_id?: string | null
+          trial_end?: string | null
           updated_at?: string | null
           user_id?: string | null
         }
@@ -275,6 +433,48 @@ export type Database = {
         }
         Relationships: []
       }
+      webhook_events_log: {
+        Row: {
+          attempts: number | null
+          created_at: string | null
+          error_message: string | null
+          event_id: string
+          event_type: string
+          id: string
+          payload: Json | null
+          processing_time_ms: number | null
+          source: string
+          status: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          attempts?: number | null
+          created_at?: string | null
+          error_message?: string | null
+          event_id: string
+          event_type: string
+          id?: string
+          payload?: Json | null
+          processing_time_ms?: number | null
+          source?: string
+          status?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          attempts?: number | null
+          created_at?: string | null
+          error_message?: string | null
+          event_id?: string
+          event_type?: string
+          id?: string
+          payload?: Json | null
+          processing_time_ms?: number | null
+          source?: string
+          status?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -287,6 +487,47 @@ export type Database = {
       check_email_rate_limit: {
         Args: { user_email: string }
         Returns: Json
+      }
+      check_failed_login_attempts: {
+        Args: {
+          p_email: string
+          p_ip_address: unknown
+          p_user_agent?: string
+          p_max_attempts?: number
+          p_lockout_duration_minutes?: number
+        }
+        Returns: Json
+      }
+      clear_failed_login_attempts: {
+        Args: { p_email: string; p_ip_address: unknown }
+        Returns: undefined
+      }
+      log_security_event: {
+        Args: {
+          p_user_id: string
+          p_event_type: string
+          p_event_details?: Json
+          p_ip_address?: unknown
+          p_user_agent?: string
+          p_severity?: string
+          p_source?: string
+        }
+        Returns: string
+      }
+      track_subscription_change: {
+        Args: {
+          p_user_id: string
+          p_subscription_id: string
+          p_old_status: string
+          p_new_status: string
+          p_old_plan_id?: string
+          p_new_plan_id?: string
+          p_change_reason?: string
+          p_changed_by?: string
+          p_stripe_event_id?: string
+          p_metadata?: Json
+        }
+        Returns: string
       }
     }
     Enums: {
