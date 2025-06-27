@@ -188,21 +188,42 @@ export default function TwilioNumberManager() {
   };
 
   const purchaseNumber = async (phoneNumber: string) => {
-    if (!user) return;
+    if (!user) {
+      toast({
+        title: "Authentication required",
+        description: "Please sign in to purchase phone numbers.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     setPurchasing(true);
     setSelectedNumber(phoneNumber);
 
     try {
-      // Get user's current plan
-      const { data: subscriptionData } = await supabase
+      // Get user's current plan with error handling
+      const { data: subscriptionData, error: subError } = await supabase
         .from("user_subscriptions")
-        .select("plan_id")
+        .select("plan_id, status")
         .eq("user_id", user.id)
         .eq("status", "active")
         .single();
 
-      const planId = subscriptionData?.plan_id || "starter";
+      if (subError || !subscriptionData) {
+        toast({
+          title: "Subscription required",
+          description:
+            "You need an active subscription to purchase phone numbers. Please upgrade your plan.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const planId = subscriptionData.plan_id;
+
+      console.log(
+        `Purchasing number ${phoneNumber} for user ${user.id} on ${planId} plan`,
+      );
 
       const { data, error } = await supabase.functions.invoke(
         "supabase-functions-purchase-twilio-number",
@@ -216,23 +237,68 @@ export default function TwilioNumberManager() {
       );
 
       if (error) {
+        console.error("Purchase error:", error);
+
+        // Enhanced error handling with specific messages
+        let errorTitle = "Purchase failed";
+        let errorDescription =
+          "Failed to purchase phone number. Please try again.";
+
+        if (error.message) {
+          if (error.message.includes("limit reached")) {
+            errorTitle = "Number limit reached";
+            errorDescription = `Your ${planId} plan has reached its phone number limit. Please upgrade your plan or remove an existing number.`;
+          } else if (error.message.includes("not available")) {
+            errorTitle = "Number unavailable";
+            errorDescription =
+              "This phone number is no longer available. Please select a different number.";
+          } else if (error.message.includes("already owned")) {
+            errorTitle = "Number already owned";
+            errorDescription = "You already own this phone number.";
+          } else if (error.message.includes("rate limit")) {
+            errorTitle = "Too many attempts";
+            errorDescription =
+              "Please wait a moment before trying to purchase another number.";
+          } else {
+            errorDescription = error.message;
+          }
+        }
+
         toast({
-          title: "Selection failed",
-          description: error.message || "Failed to Select phone number.",
+          title: errorTitle,
+          description: errorDescription,
           variant: "destructive",
         });
+      } else if (data?.success) {
+        console.log("Purchase successful:", data);
+
+        toast({
+          title: "🎉 Number purchased successfully!",
+          description: `${data.number?.formatted_number || phoneNumber} is now ready to use with ${data.minutesAllocated} minutes allocated.`,
+        });
+
+        // Close dialog and refresh numbers
+        setShowNumberDialog(false);
+        await fetchUserNumbers();
+
+        // Reset search state
+        setAvailableNumbers([]);
+        setHasSearched(false);
+        setAreaCode("");
       } else {
         toast({
-          title: "Number Selected",
-          description: `Successfully Selected ${phoneNumber}`,
+          title: "Purchase incomplete",
+          description:
+            "The purchase may not have completed successfully. Please check your numbers or contact support.",
+          variant: "destructive",
         });
-        setShowNumberDialog(false);
-        fetchUserNumbers();
       }
     } catch (error) {
+      console.error("Purchase exception:", error);
       toast({
-        title: "Selected failed",
-        description: "Failed to Selected phone number.",
+        title: "Purchase failed",
+        description:
+          "An unexpected error occurred. Please try again or contact support if the problem persists.",
         variant: "destructive",
       });
     } finally {
@@ -248,6 +314,22 @@ export default function TwilioNumberManager() {
       return `+1 (${number.slice(0, 3)}) ${number.slice(3, 6)}-${number.slice(6)}`;
     }
     return phoneNumber;
+  };
+
+  const handleManageFlows = (numberId: string) => {
+    toast({
+      title: "Call Flow Management",
+      description:
+        "Call flow management interface coming soon! You'll be able to create custom voice menus, voicemail, and call routing.",
+    });
+  };
+
+  const handleNumberSettings = (numberId: string) => {
+    toast({
+      title: "Number Settings",
+      description:
+        "Number settings interface coming soon! You'll be able to configure forwarding, recording, and other advanced features.",
+    });
   };
 
   // Reset search state when dialog closes
@@ -547,10 +629,18 @@ export default function TwilioNumberManager() {
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleManageFlows(number.id)}
+                  >
                     Manage Flows
                   </Button>
-                  <Button variant="outline" size="sm">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleNumberSettings(number.id)}
+                  >
                     Settings
                   </Button>
                 </div>
