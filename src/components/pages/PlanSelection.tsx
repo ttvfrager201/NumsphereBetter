@@ -203,7 +203,7 @@ export default function PlanSelection({
 
       // Create checkout session via edge function
       const { data, error } = await supabase.functions.invoke(
-        "supabase-functions-create-checkout-session",
+        "create-checkout-session",
         {
           body: {
             planId,

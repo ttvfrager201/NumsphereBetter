@@ -1,10 +1,16 @@
 import Stripe from "https://esm.sh/stripe@14.21.0";
-import { getFrontendBaseUrl, logConfig } from "@shared/config.ts";
-import { corsHeaders } from "@shared/cors.ts";
-
-// Remove the duplicate corsHeaders definition since we're importing it
+import { getFrontendBaseUrl, logConfig } from "../_shared/config.ts";
 
 Deno.serve(async (req) => {
+  // Define CORS headers directly in the function
+  const corsHeaders = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers":
+      "authorization, x-client-info, apikey, content-type, x-requested-with",
+    "Access-Control-Allow-Methods": "POST, GET, OPTIONS, PUT, DELETE",
+    "Access-Control-Max-Age": "86400",
+  };
+
   // Log configuration for debugging
   logConfig("create-checkout-session");
 
@@ -32,7 +38,10 @@ Deno.serve(async (req) => {
   if (!planId || !userId || !userEmail) {
     console.error("Missing parameters:", { planId, userId, userEmail });
     return new Response(
-      JSON.stringify({ error: "Missing required parameters" }),
+      JSON.stringify({
+        error: "Missing required parameters",
+        details: `planId: ${!!planId}, userId: ${!!userId}, userEmail: ${!!userEmail}`,
+      }),
       {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -139,13 +148,9 @@ Deno.serve(async (req) => {
       },
     );
   } catch (err) {
-    console.error("Stripe checkout session error:", err.message, err.stack);
+    console.error("Stripe checkout session error:", err.message);
     return new Response(
-      JSON.stringify({
-        error: "Failed to create checkout session",
-        details: err.message,
-        type: err.type || "unknown_error",
-      }),
+      JSON.stringify({ error: "Failed to create checkout session" }),
       {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },

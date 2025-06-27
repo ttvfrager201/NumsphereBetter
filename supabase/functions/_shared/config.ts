@@ -40,8 +40,8 @@ export function getFrontendBaseUrl(): string {
     return deploymentUrl;
   }
 
-  // Final fallback - use the known deployment URL
-  return "https://pedantic-easley2-9urye.view-3.tempo-dev.app";
+  // Final fallback - use the current deployment URL
+  return "https://flamboyant-blackwell3-7h3lb.view-3.tempo-dev.app";
 }
 
 /**
