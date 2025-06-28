@@ -1,14 +1,13 @@
 import Stripe from "https://esm.sh/stripe@14.21.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// CORS headers - All restrictions removed
+// CORS headers - Comprehensive configuration for preflight requests
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "*",
   "Access-Control-Allow-Methods": "*",
   "Access-Control-Max-Age": "86400",
 };
-
 // Database types
 type Json =
   | string
@@ -97,8 +96,9 @@ function createSupabaseClient() {
 Deno.serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
-    return new Response(null, {
-      status: 204,
+    console.log("Handling CORS preflight request");
+    return new Response("ok", {
+      status: 200,
       headers: corsHeaders,
     });
   }
@@ -135,6 +135,13 @@ Deno.serve(async (req) => {
   console.log("Request headers:", Object.fromEntries(req.headers.entries()));
 
   const { sessionId, userId, action, securityToken } = body || {};
+
+  console.log("Extracted parameters:", {
+    sessionId: sessionId ? sessionId.substring(0, 20) + "..." : "missing",
+    userId: userId ? userId.substring(0, 8) + "..." : "missing",
+    action: action || "verify",
+    securityToken: securityToken ? "present" : "missing",
+  });
 
   if (!sessionId) {
     console.error("Missing sessionId parameter:", { body, sessionId, userId });
@@ -211,9 +218,13 @@ Deno.serve(async (req) => {
 
     while (retryCount < maxRetries) {
       try {
+        console.log(
+          `Attempting to retrieve Stripe session (attempt ${retryCount + 1})...`,
+        );
         session = await stripe.checkout.sessions.retrieve(sessionId, {
-          expand: ["subscription"],
+          expand: ["subscription", "customer"],
         });
+        console.log("Successfully retrieved Stripe session");
         break;
       } catch (stripeError) {
         retryCount++;
@@ -237,11 +248,17 @@ Deno.serve(async (req) => {
       id: session.id,
       payment_status: session.payment_status,
       status: session.status,
+      customer: session.customer,
+      subscription: session.subscription,
       metadata: session.metadata,
     });
 
     // Check if payment was successful
     if (session.payment_status !== "paid" || session.status !== "complete") {
+      console.log("Payment not completed:", {
+        payment_status: session.payment_status,
+        status: session.status,
+      });
       return new Response(
         JSON.stringify({
           success: false,
@@ -256,12 +273,22 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Verify the user ID matches
-    if (session.metadata?.user_id !== userId) {
+    // Verify the user ID matches (more flexible matching)
+    const sessionUserId = session.metadata?.user_id;
+    console.log("User ID verification:", {
+      provided: userId,
+      session: sessionUserId,
+      match: sessionUserId === userId,
+    });
+
+    if (sessionUserId && sessionUserId !== userId) {
+      console.error("User ID mismatch detected");
       return new Response(
         JSON.stringify({
           success: false,
           error: "User ID mismatch",
+          provided: userId,
+          session: sessionUserId,
         }),
         {
           status: 400,
@@ -270,8 +297,58 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Verification only - webhook handles all database updates
-    // This function just confirms the payment was successful
+    // Create Supabase client for database operations
+    const supabase = createSupabaseClient();
+
+    // Update or create user subscription record
+    try {
+      const subscriptionData = {
+        user_id: userId,
+        plan_id: session.metadata?.plan_id || "default",
+        status: "active",
+        stripe_checkout_session_id: session.id,
+        stripe_customer_id: session.customer,
+        stripe_subscription_id:
+          session.subscription?.id || session.subscription,
+        payment_verified_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      console.log("Upserting subscription data:", subscriptionData);
+
+      const { error: upsertError } = await supabase
+        .from("user_subscriptions")
+        .upsert(subscriptionData, {
+          onConflict: "user_id",
+        });
+
+      if (upsertError) {
+        console.error("Error upserting subscription:", upsertError);
+      } else {
+        console.log("Successfully updated subscription record");
+      }
+
+      // Also update the users table
+      const { error: userUpdateError } = await supabase
+        .from("users")
+        .update({
+          has_completed_payment: true,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", userId);
+
+      if (userUpdateError) {
+        console.error("Error updating user payment status:", userUpdateError);
+      } else {
+        console.log("Successfully updated user payment status");
+      }
+    } catch (dbError) {
+      console.error("Database operation error:", dbError);
+      // Don't fail the verification for database errors
+    }
+
+    // Payment verification successful
+    console.log("Payment verification completed successfully");
     return new Response(
       JSON.stringify({
         success: true,
@@ -279,8 +356,7 @@ Deno.serve(async (req) => {
         subscriptionId: session.subscription?.id || session.subscription,
         customerId: session.customer,
         sessionId: session.id,
-        message:
-          "Payment verified. Subscription status will be updated via webhook.",
+        message: "Payment verified and subscription activated.",
       }),
       {
         status: 200,

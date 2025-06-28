@@ -1,6 +1,6 @@
 import { CheckCircle, AlertTriangle } from "lucide-react";
 import { motion } from "framer-motion";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../../supabase/auth";
 import { supabase } from "../../../supabase/supabase";
@@ -14,84 +14,99 @@ export default function Success() {
     "verifying" | "success" | "error"
   >("verifying");
   const [errorMessage, setErrorMessage] = useState("");
+  const hasProcessedRef = useRef(false);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
+    // Prevent multiple executions
+    if (hasProcessedRef.current) {
+      return;
+    }
+
     const handleSuccess = async () => {
       try {
+        // Check if page is visible and focused
+        if (document.hidden || !document.hasFocus()) {
+          console.log("Page not visible or focused, skipping verification");
+          return;
+        }
+
         const sessionId = searchParams.get("session_id");
         const securityToken = searchParams.get("security_token");
 
         if (!sessionId) {
           setVerificationStatus("error");
           setErrorMessage("Invalid payment session");
+          hasProcessedRef.current = true;
           return;
         }
 
-        // Verify session data integrity
-        const storedSession = sessionStorage.getItem("payment_session");
-        if (storedSession) {
-          try {
-            const sessionData = JSON.parse(storedSession);
-            if (sessionData.expires < Date.now()) {
-              setVerificationStatus("error");
-              setErrorMessage("Payment session expired");
-              return;
-            }
-          } catch {
-            console.warn("Invalid session data format");
-          }
+        // Wait for user to be loaded if not available yet
+        if (!user) {
+          console.log("Waiting for user authentication...");
+          return;
         }
+
+        // Mark as processed to prevent re-execution
+        hasProcessedRef.current = true;
+
+        console.log("Starting payment verification for user:", user.id);
+        console.log("Session ID:", sessionId);
+        console.log("Security Token:", securityToken ? "present" : "missing");
 
         // Enhanced payment verification using Stripe functions API
         console.log(
           "Verifying payment with enhanced security using Stripe API...",
         );
 
-        // Wait for webhook processing with multiple verification attempts
-        let verificationAttempts = 0;
-        const maxAttempts = 8;
-        let paymentVerified = false;
-
-        while (verificationAttempts < maxAttempts && !paymentVerified) {
-          await new Promise((resolve) => setTimeout(resolve, 2000));
-
-          try {
-            // Use Stripe functions API instead of direct database queries
-            const { data: verificationResult, error: apiError } =
-              await supabase.functions.invoke("verify-payment", {
+        try {
+          // Direct verification call to Stripe API
+          const { data: verificationResult, error: apiError } =
+            await supabase.functions.invoke(
+              "supabase-functions-verify-payment",
+              {
                 body: {
                   sessionId,
-                  userId: user?.id,
+                  userId: user.id,
                   securityToken,
                 },
-              });
-
-            if (apiError) {
-              console.log(
-                `Stripe API verification error (attempt ${verificationAttempts + 1}):`,
-                apiError,
-              );
-              // Continue to next attempt instead of breaking
-            }
-
-            if (verificationResult?.success) {
-              paymentVerified = true;
-              break;
-            }
-          } catch (error) {
-            console.log(
-              `Verification attempt ${verificationAttempts + 1} failed:`,
-              error,
+              },
             );
+
+          console.log("Verification API response:", {
+            verificationResult,
+            apiError,
+          });
+
+          if (apiError) {
+            console.error("Stripe API verification error:", apiError);
+            setVerificationStatus("error");
+            setErrorMessage(
+              `Payment verification failed: ${apiError.message || "Unknown error"}`,
+            );
+            return;
           }
 
-          verificationAttempts++;
-        }
+          if (verificationResult?.success) {
+            console.log("Payment verified successfully!");
 
-        if (paymentVerified) {
-          // Final payment status check
-          const finalCheck = await checkPaymentStatus();
-          if (finalCheck) {
+            // Update user payment status in database
+            try {
+              const { error: updateError } = await supabase
+                .from("users")
+                .update({ has_completed_payment: true })
+                .eq("id", user.id);
+
+              if (updateError) {
+                console.error(
+                  "Error updating user payment status:",
+                  updateError,
+                );
+              }
+            } catch (dbError) {
+              console.error("Database update error:", dbError);
+            }
+
             setVerificationStatus("success");
 
             // Clean up session storage securely
@@ -106,60 +121,40 @@ export default function Success() {
             const shouldRedirectToDashboard =
               searchParams.get("redirect_to_dashboard") === "true";
 
+            // Only redirect if page is still visible and focused
+            const scheduleRedirect = (delay: number, path: string) => {
+              timeoutRef.current = setTimeout(() => {
+                if (!document.hidden && document.hasFocus()) {
+                  navigate(path, { replace: true });
+                } else {
+                  console.log("Page not focused, skipping redirect");
+                }
+              }, delay);
+            };
+
             if (shouldRedirectToDashboard) {
               // Redirect immediately to dashboard for number selection
-              setTimeout(() => {
-                navigate("/dashboard?tab=Select Number&first_time=true", {
-                  replace: true,
-                });
-              }, 2000);
+              scheduleRedirect(
+                2000,
+                "/dashboard?tab=Select Number&first_time=true",
+              );
             } else {
               // Normal redirect after confirmation
-              setTimeout(() => {
-                navigate("/dashboard", { replace: true });
-              }, 3000);
+              scheduleRedirect(3000, "/dashboard");
             }
           } else {
-            setVerificationStatus("error");
-            setErrorMessage("Payment verification failed");
-          }
-        } else {
-          // Trigger automatic refund for failed payment verification using Stripe API
-          console.log(
-            "Payment verification failed, initiating automatic refund via Stripe API...",
-          );
-
-          try {
-            const refundResponse = await supabase.functions.invoke(
-              "verify-payment",
-              {
-                body: {
-                  sessionId,
-                  userId: user?.id,
-                  action: "refund_failed_payment",
-                  securityToken,
-                },
-              },
-            );
-
-            if (refundResponse.data?.refund_initiated) {
-              setVerificationStatus("error");
-              setErrorMessage(
-                "Payment verification failed. An automatic refund has been processed and will appear in your account within 5-10 business days.",
-              );
-            } else {
-              setVerificationStatus("error");
-              setErrorMessage(
-                "Payment processing timeout. Please contact support for assistance and refund processing.",
-              );
-            }
-          } catch (refundError) {
-            console.error("Automatic refund failed:", refundError);
+            console.error("Payment verification failed:", verificationResult);
             setVerificationStatus("error");
             setErrorMessage(
-              "Payment verification failed. Please contact support immediately for refund processing.",
+              verificationResult?.error || "Payment verification failed",
             );
           }
+        } catch (error) {
+          console.error("Payment verification error:", error);
+          setVerificationStatus("error");
+          setErrorMessage(
+            `Payment verification failed: ${error.message || "Unknown error"}`,
+          );
         }
       } catch (error) {
         console.error("Payment verification error:", error);
@@ -169,7 +164,15 @@ export default function Success() {
     };
 
     handleSuccess();
-  }, [checkPaymentStatus, navigate, searchParams, user]);
+
+    // Cleanup function
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+    };
+  }, [user, searchParams, navigate, checkPaymentStatus]);
 
   if (verificationStatus === "verifying") {
     return (
