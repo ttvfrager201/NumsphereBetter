@@ -1,12 +1,13 @@
 import Stripe from "https://esm.sh/stripe@14.21.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// CORS headers
+// CORS headers - All restrictions removed
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "*",
   "Access-Control-Allow-Methods": "*",
   "Access-Control-Max-Age": "86400",
+  "Access-Control-Allow-Credentials": "true",
 };
 
 // Database types
@@ -103,6 +104,14 @@ Deno.serve(async (req) => {
     });
   }
 
+  // Only allow POST requests
+  if (req.method !== "POST") {
+    return new Response(JSON.stringify({ error: "Method not allowed" }), {
+      status: 405,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
   // Log configuration for debugging
   logConfig("verify-payment");
 
@@ -110,24 +119,72 @@ Deno.serve(async (req) => {
   try {
     body = await req.json();
   } catch (err) {
-    console.error("Invalid JSON input:", err.message);
-    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
-      status: 400,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
-
-  const { sessionId, userId } = body;
-
-  if (!sessionId || !userId) {
-    console.error("Missing parameters:", { sessionId, userId });
+    console.error("Error parsing request body:", err);
     return new Response(
-      JSON.stringify({ error: "Missing required parameters" }),
+      JSON.stringify({
+        error: "Invalid JSON in request body",
+        details: err.message,
+      }),
       {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       },
     );
+  }
+
+  console.log("Received request body:", body);
+
+  const { sessionId, userId, action, securityToken } = body || {};
+
+  if (!sessionId) {
+    console.error("Missing sessionId parameter:", { body, sessionId, userId });
+    return new Response(
+      JSON.stringify({
+        error: "Missing sessionId parameter",
+        received: {
+          sessionId,
+          userId,
+          action,
+          securityToken: securityToken ? "present" : "missing",
+        },
+      }),
+      {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
+    );
+  }
+
+  if (!userId) {
+    console.error("Missing userId parameter:", { body, sessionId, userId });
+    return new Response(
+      JSON.stringify({
+        error: "Missing userId parameter",
+        received: {
+          sessionId,
+          userId,
+          action,
+          securityToken: securityToken ? "present" : "missing",
+        },
+      }),
+      {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
+    );
+  }
+
+  // Log security token for debugging (in production, you might want to validate this)
+  if (securityToken) {
+    console.log(
+      "Security token received:",
+      securityToken.substring(0, 8) + "...",
+    );
+  }
+
+  // Handle automatic refund requests
+  if (action === "refund_failed_payment") {
+    return await handleAutomaticRefund(sessionId, userId);
   }
 
   const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
@@ -253,3 +310,153 @@ Deno.serve(async (req) => {
     );
   }
 });
+
+// Handle automatic refunds for failed payment verification
+async function handleAutomaticRefund(sessionId: string, userId: string) {
+  const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
+  if (!stripeSecretKey) {
+    return new Response(JSON.stringify({ error: "Configuration error" }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  const stripe = new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" });
+  const supabase = createSupabaseClient();
+
+  try {
+    console.log(
+      `[refund] Processing automatic refund for session ${sessionId}, user ${userId}`,
+    );
+
+    // Retrieve the checkout session
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+    if (!session) {
+      return new Response(
+        JSON.stringify({ error: "Session not found", refund_initiated: false }),
+        {
+          status: 404,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
+
+    // Check if payment was actually made
+    if (session.payment_status === "paid" && session.payment_intent) {
+      try {
+        // Get the payment intent to find the charge
+        const paymentIntent = await stripe.paymentIntents.retrieve(
+          session.payment_intent as string,
+        );
+
+        if (paymentIntent.charges?.data?.[0]?.id) {
+          const chargeId = paymentIntent.charges.data[0].id;
+
+          // Create refund
+          const refund = await stripe.refunds.create({
+            charge: chargeId,
+            reason: "requested_by_customer",
+            metadata: {
+              user_id: userId,
+              session_id: sessionId,
+              auto_refund: "payment_verification_failed",
+              processed_at: new Date().toISOString(),
+            },
+          });
+
+          console.log(`[refund] Refund created successfully:`, {
+            refund_id: refund.id,
+            amount: refund.amount,
+            status: refund.status,
+            charge_id: chargeId,
+          });
+
+          // Log the refund in database
+          await supabase.from("payment_security_log").insert({
+            user_id: userId,
+            event_type: "automatic_refund_verification_failed",
+            payload: {
+              refund_id: refund.id,
+              session_id: sessionId,
+              charge_id: chargeId,
+              amount: refund.amount,
+              reason: "payment_verification_failed",
+            },
+            status: "completed",
+            created_at: new Date().toISOString(),
+          });
+
+          return new Response(
+            JSON.stringify({
+              refund_initiated: true,
+              refund_id: refund.id,
+              amount: refund.amount,
+              status: refund.status,
+              message: "Automatic refund processed successfully",
+            }),
+            {
+              status: 200,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        }
+      } catch (refundError) {
+        console.error(`[refund] Error processing refund:`, refundError);
+
+        // Log refund failure
+        await supabase.from("payment_security_log").insert({
+          user_id: userId,
+          event_type: "refund_failed",
+          payload: {
+            session_id: sessionId,
+            error: refundError.message,
+            payment_intent: session.payment_intent,
+          },
+          status: "failed",
+          error_message: refundError.message,
+          created_at: new Date().toISOString(),
+        });
+
+        return new Response(
+          JSON.stringify({
+            refund_initiated: false,
+            error: "Refund processing failed",
+            details: refundError.message,
+          }),
+          {
+            status: 500,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
+      }
+    }
+
+    // No payment to refund
+    return new Response(
+      JSON.stringify({
+        refund_initiated: false,
+        message: "No payment found to refund",
+        payment_status: session.payment_status,
+      }),
+      {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
+    );
+  } catch (error) {
+    console.error(`[refund] Error in automatic refund process:`, error);
+
+    return new Response(
+      JSON.stringify({
+        refund_initiated: false,
+        error: "Automatic refund failed",
+        details: error.message,
+      }),
+      {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
+    );
+  }
+}

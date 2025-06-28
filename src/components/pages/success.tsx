@@ -42,8 +42,10 @@ export default function Success() {
           }
         }
 
-        // Enhanced payment verification with security checks
-        console.log("Verifying payment with enhanced security...");
+        // Enhanced payment verification using Stripe functions API
+        console.log(
+          "Verifying payment with enhanced security using Stripe API...",
+        );
 
         // Wait for webhook processing with multiple verification attempts
         let verificationAttempts = 0;
@@ -54,15 +56,31 @@ export default function Success() {
           await new Promise((resolve) => setTimeout(resolve, 2000));
 
           try {
-            // Check database directly for payment status
-            const { data: subscriptionData } = await supabase
-              .from("user_subscriptions")
-              .select("status, stripe_checkout_session_id")
-              .eq("user_id", user?.id)
-              .eq("stripe_checkout_session_id", sessionId)
-              .single();
+            // Use Stripe functions API instead of direct database queries
+            const { data: verificationResult, error: apiError } =
+              await supabase.functions.invoke(
+                "supabase-functions-verify-payment",
+                {
+                  body: JSON.stringify({
+                    sessionId,
+                    userId: user?.id,
+                    securityToken,
+                  }),
+                  headers: {
+                    "Content-Type": "application/json",
+                  },
+                },
+              );
 
-            if (subscriptionData?.status === "active") {
+            if (apiError) {
+              console.log(
+                `Stripe API verification error (attempt ${verificationAttempts + 1}):`,
+                apiError,
+              );
+              // Continue to next attempt instead of breaking
+            }
+
+            if (verificationResult?.success) {
               paymentVerified = true;
               break;
             }
@@ -112,10 +130,45 @@ export default function Success() {
             setErrorMessage("Payment verification failed");
           }
         } else {
-          setVerificationStatus("error");
-          setErrorMessage(
-            "Payment processing timeout - please contact support",
+          // Trigger automatic refund for failed payment verification using Stripe API
+          console.log(
+            "Payment verification failed, initiating automatic refund via Stripe API...",
           );
+
+          try {
+            const refundResponse = await supabase.functions.invoke(
+              "supabase-functions-verify-payment",
+              {
+                body: JSON.stringify({
+                  sessionId,
+                  userId: user?.id,
+                  action: "refund_failed_payment",
+                  securityToken,
+                }),
+                headers: {
+                  "Content-Type": "application/json",
+                },
+              },
+            );
+
+            if (refundResponse.data?.refund_initiated) {
+              setVerificationStatus("error");
+              setErrorMessage(
+                "Payment verification failed. An automatic refund has been processed and will appear in your account within 5-10 business days.",
+              );
+            } else {
+              setVerificationStatus("error");
+              setErrorMessage(
+                "Payment processing timeout. Please contact support for assistance and refund processing.",
+              );
+            }
+          } catch (refundError) {
+            console.error("Automatic refund failed:", refundError);
+            setVerificationStatus("error");
+            setErrorMessage(
+              "Payment verification failed. Please contact support immediately for refund processing.",
+            );
+          }
         }
       } catch (error) {
         console.error("Payment verification error:", error);

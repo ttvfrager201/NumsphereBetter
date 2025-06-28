@@ -1,12 +1,13 @@
 import Stripe from "https://esm.sh/stripe@14.21.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// CORS headers
+// CORS headers - All restrictions removed
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "*",
   "Access-Control-Allow-Methods": "*",
   "Access-Control-Max-Age": "86400",
+  "Access-Control-Allow-Credentials": "true",
 };
 
 // Database types
@@ -659,6 +660,11 @@ Deno.serve(async (req) => {
         );
         break;
 
+      // Handle checkout session completion failures
+      case "checkout.session.expired":
+        await handleCheckoutSessionExpired(event.data.object, requestId);
+        break;
+
       default:
         console.log(
           `[${new Date().toISOString()}] Ignored event: ${event.type}`,
@@ -1237,7 +1243,7 @@ async function handlePaymentFailed(invoice: any, requestId: string) {
         `[payment_failed] Processing automatic refund for user ${data.user_id}`,
       );
 
-      // Automatic refund logic
+      // Enhanced automatic refund logic with better error handling
       try {
         if (invoice.charge && invoice.amount_paid > 0) {
           console.log(
@@ -1275,6 +1281,10 @@ async function handlePaymentFailed(invoice: any, requestId: string) {
             status: "completed",
             created_at: timestamp,
           });
+        } else {
+          console.log(
+            `[payment_failed] No charge found to refund for invoice ${invoice.id}`,
+          );
         }
       } catch (refundError) {
         console.error(`[payment_failed] Refund failed:`, refundError);
@@ -1743,5 +1753,92 @@ async function sendEmail(
     // });
   } catch (error) {
     console.error(`[email] [${requestId}] Error sending email:`, error);
+  }
+}
+
+// Handle checkout session completion failures
+async function handleCheckoutSessionExpired(session: any, requestId: string) {
+  const supabase = createSupabaseClient();
+  const stripe = createStripeClient();
+  const timestamp = new Date().toISOString();
+
+  try {
+    console.log(`[checkout_expired] Processing expired session ${session.id}`);
+
+    // Check if payment was made before expiration
+    if (session.payment_status === "paid" && session.payment_intent) {
+      const userId = session.metadata?.user_id;
+
+      if (userId) {
+        console.log(
+          `[checkout_expired] Processing automatic refund for expired paid session`,
+        );
+
+        try {
+          // Get the payment intent to find the charge
+          const paymentIntent = await stripe.paymentIntents.retrieve(
+            session.payment_intent as string,
+          );
+
+          if (paymentIntent.charges?.data?.[0]?.id) {
+            const chargeId = paymentIntent.charges.data[0].id;
+
+            // Create refund for expired session
+            const refund = await stripe.refunds.create({
+              charge: chargeId,
+              reason: "requested_by_customer",
+              metadata: {
+                user_id: userId,
+                session_id: session.id,
+                auto_refund: "checkout_session_expired",
+                processed_at: timestamp,
+              },
+            });
+
+            console.log(
+              `[checkout_expired] Refund created for expired session:`,
+              {
+                refund_id: refund.id,
+                amount: refund.amount,
+                status: refund.status,
+              },
+            );
+
+            // Log the refund
+            await supabase.from("payment_security_log").insert({
+              user_id: userId,
+              event_type: "automatic_refund_session_expired",
+              payload: {
+                refund_id: refund.id,
+                session_id: session.id,
+                charge_id: chargeId,
+                amount: refund.amount,
+                reason: "checkout_session_expired",
+              },
+              status: "completed",
+              created_at: timestamp,
+            });
+          }
+        } catch (refundError) {
+          console.error(`[checkout_expired] Refund failed:`, refundError);
+
+          // Log refund failure
+          await supabase.from("payment_security_log").insert({
+            user_id: userId,
+            event_type: "refund_failed_session_expired",
+            payload: {
+              session_id: session.id,
+              error: refundError.message,
+              payment_intent: session.payment_intent,
+            },
+            status: "failed",
+            error_message: refundError.message,
+            created_at: timestamp,
+          });
+        }
+      }
+    }
+  } catch (error) {
+    console.error(`[checkout_expired] Error handling expired session:`, error);
   }
 }
