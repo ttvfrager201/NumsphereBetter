@@ -6,7 +6,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "*",
   "Access-Control-Allow-Methods": "*",
   "Access-Control-Max-Age": "86400",
-  "Access-Control-Allow-Credentials": "true",
 };
 
 // Configuration utilities
@@ -41,14 +40,14 @@ async function getFrontendBaseUrl(): Promise<string> {
     // Fallback to environment variable or default
     const fallbackUrl =
       Deno.env.get("FRONTEND_URL") ||
-      "https://keen-shtern6-gtsg8.view-3.tempo-dev.app";
+      "https://optimistic-keller2-ta7qe.view-3.tempo-dev.app";
     console.log("Using fallback frontend URL:", fallbackUrl);
     return fallbackUrl;
   } catch (error) {
     console.error("Error fetching frontend URL from database:", error);
     const fallbackUrl =
       Deno.env.get("FRONTEND_URL") ||
-      "https://keen-shtern6-gtsg8.view-3.tempo-dev.app";
+      "https://optimistic-keller2-ta7qe.view-3.tempo-dev.app";
     console.log("Using fallback frontend URL due to error:", fallbackUrl);
     return fallbackUrl;
   }

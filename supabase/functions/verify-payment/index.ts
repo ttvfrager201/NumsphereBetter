@@ -7,7 +7,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "*",
   "Access-Control-Allow-Methods": "*",
   "Access-Control-Max-Age": "86400",
-  "Access-Control-Allow-Credentials": "true",
 };
 
 // Database types
@@ -122,7 +121,7 @@ Deno.serve(async (req) => {
     console.error("Error parsing request body:", err);
     return new Response(
       JSON.stringify({
-        error: "Invalid JSON in request body",
+        error: "Invalid request body",
         details: err.message,
       }),
       {
@@ -133,6 +132,7 @@ Deno.serve(async (req) => {
   }
 
   console.log("Received request body:", body);
+  console.log("Request headers:", Object.fromEntries(req.headers.entries()));
 
   const { sessionId, userId, action, securityToken } = body || {};
 

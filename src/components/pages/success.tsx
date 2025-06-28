@@ -58,19 +58,13 @@ export default function Success() {
           try {
             // Use Stripe functions API instead of direct database queries
             const { data: verificationResult, error: apiError } =
-              await supabase.functions.invoke(
-                "supabase-functions-verify-payment",
-                {
-                  body: JSON.stringify({
-                    sessionId,
-                    userId: user?.id,
-                    securityToken,
-                  }),
-                  headers: {
-                    "Content-Type": "application/json",
-                  },
+              await supabase.functions.invoke("verify-payment", {
+                body: {
+                  sessionId,
+                  userId: user?.id,
+                  securityToken,
                 },
-              );
+              });
 
             if (apiError) {
               console.log(
@@ -137,16 +131,13 @@ export default function Success() {
 
           try {
             const refundResponse = await supabase.functions.invoke(
-              "supabase-functions-verify-payment",
+              "verify-payment",
               {
-                body: JSON.stringify({
+                body: {
                   sessionId,
                   userId: user?.id,
                   action: "refund_failed_payment",
                   securityToken,
-                }),
-                headers: {
-                  "Content-Type": "application/json",
                 },
               },
             );
