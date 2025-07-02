@@ -47,19 +47,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
-      // Enhanced security check - verify multiple sources
+      console.log("[Auth] Checking payment status for user:", user.id);
+
+      // Check both user payment flag and subscription status
       const [userResult, subscriptionResult] = await Promise.all([
         supabase
           .from("users")
-          .select("has_completed_payment, updated_at")
+          .select("has_completed_payment")
           .eq("id", user.id)
           .single(),
         supabase
           .from("user_subscriptions")
-          .select(
-            "status, stripe_subscription_id, updated_at, security_fingerprint",
-          )
+          .select("status, stripe_subscription_id")
           .eq("user_id", user.id)
+          .eq("status", "active")
+          .not("stripe_subscription_id", "is", null)
           .order("updated_at", { ascending: false })
           .limit(1)
           .maybeSingle(),
@@ -68,53 +70,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { data: userData, error: userError } = userResult;
       const { data: subscriptionData, error: subError } = subscriptionResult;
 
+      console.log("[Auth] User data:", userData);
+      console.log("[Auth] Subscription data:", subscriptionData);
+
       if (userError && userError.code !== "PGRST116") {
-        console.error("Error checking user payment status:", userError);
-        setHasCompletedPayment(false);
-        return false;
+        console.error("[Auth] Error checking user payment status:", userError);
+        // Don't change state on error to preserve current state
+        return hasCompletedPayment;
       }
 
-      // Security validation - check for tampering
-      const currentFingerprint = generateSecurityFingerprint();
-      const storedFingerprint = subscriptionData?.security_fingerprint;
-
-      // Allow some flexibility for legitimate device changes
-      const fingerprintValid =
-        !storedFingerprint ||
-        Math.abs(
-          parseInt(currentFingerprint, 36) - parseInt(storedFingerprint, 36),
-        ) < 1000000;
-
-      if (!fingerprintValid) {
-        console.warn("Security fingerprint mismatch detected");
-        // Don't block immediately, but log for monitoring
-      }
-
-      // Strict validation - both conditions must be true
+      // Check if user has completed payment AND has active subscription
       const hasValidPayment =
         userData?.has_completed_payment === true &&
         subscriptionData?.status === "active" &&
         subscriptionData?.stripe_subscription_id;
 
-      // Additional security check - verify subscription is recent enough
-      if (hasValidPayment && subscriptionData?.updated_at) {
-        const lastUpdate = new Date(subscriptionData.updated_at);
-        const daysSinceUpdate =
-          (Date.now() - lastUpdate.getTime()) / (1000 * 60 * 60 * 24);
-
-        // If subscription hasn't been updated in 35 days, re-verify
-        if (daysSinceUpdate > 35) {
-          console.log("Subscription verification needed - outdated");
-          // Could trigger re-verification here
-        }
-      }
+      console.log("[Auth] Payment status result:", {
+        userPaymentFlag: userData?.has_completed_payment,
+        subscriptionStatus: subscriptionData?.status,
+        hasStripeId: !!subscriptionData?.stripe_subscription_id,
+        finalResult: hasValidPayment,
+      });
 
       setHasCompletedPayment(hasValidPayment);
       return hasValidPayment;
     } catch (error) {
-      console.error("Error checking payment status:", error);
-      setHasCompletedPayment(false);
-      return false;
+      console.error("[Auth] Error checking payment status:", error);
+      // Don't change state on error to preserve current state
+      return hasCompletedPayment;
     }
   };
 
@@ -143,7 +126,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       setUser(session?.user ?? null);
       if (session?.user) {
-        await checkPaymentStatus();
+        // Only check payment status on initial load, not on tab focus
+        if (!hasCompletedPayment) {
+          await checkPaymentStatus();
+        }
       } else {
         setHasCompletedPayment(false);
       }
@@ -160,9 +146,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         event === "TOKEN_REFRESHED"
       ) {
         setUser(session?.user ?? null);
-        if (session?.user) {
+        if (session?.user && event === "SIGNED_IN") {
+          // Only check payment status on actual sign in, not token refresh
           await checkPaymentStatus();
-        } else {
+        } else if (event === "SIGNED_OUT") {
           setHasCompletedPayment(false);
         }
         setLoading(false);

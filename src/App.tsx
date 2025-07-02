@@ -21,57 +21,40 @@ import { Toaster } from "./components/ui/toaster";
 import { LoadingScreen, LoadingSpinner } from "./components/ui/loading-spinner";
 
 function PlanSelectionWrapper() {
-  const { hasCompletedPayment, loading, user, checkPaymentStatus } = useAuth();
+  const { hasCompletedPayment, loading, user } = useAuth();
   const navigate = useNavigate();
-  const [isCheckingSubscription, setIsCheckingSubscription] =
-    React.useState(true);
   const [searchParams] = React.useMemo(
     () => [new URLSearchParams(window.location.search)],
     [],
   );
 
   React.useEffect(() => {
-    // Check for payment cancellation
+    // Only check for payment cancellation, don't force payment status checks
     if (searchParams.get("cancelled") === "true") {
       // Clear any pending session data
       sessionStorage.removeItem("payment_session");
-      setIsCheckingSubscription(false);
-      return;
     }
+  }, [searchParams]);
 
-    // Enhanced subscription check
-    const checkSubscriptionStatus = async () => {
-      if (!user || loading) return;
+  // Show loading while auth is loading
+  if (loading) {
+    return <LoadingScreen text="Loading..." />;
+  }
 
-      try {
-        setIsCheckingSubscription(true);
-        const hasValidPayment = await checkPaymentStatus();
-
-        if (hasValidPayment) {
-          navigate("/dashboard", { replace: true });
-        }
-      } catch (error) {
-        console.error("Error checking subscription status:", error);
-      } finally {
-        setIsCheckingSubscription(false);
-      }
-    };
-
-    checkSubscriptionStatus();
-  }, [user, loading, navigate, searchParams, checkPaymentStatus]);
-
-  if (!loading && !user) {
+  // Redirect to home if no user
+  if (!user) {
     return <Navigate to="/" replace />;
   }
 
-  if (loading || isCheckingSubscription) {
-    return <LoadingScreen text="Checking subscription status..." />;
-  }
-
-  if (!loading && user && hasCompletedPayment) {
+  // If user has completed payment, redirect to dashboard
+  if (hasCompletedPayment) {
+    console.log(
+      "[PlanSelection] User has completed payment, redirecting to dashboard",
+    );
     return <Navigate to="/dashboard" replace />;
   }
 
+  console.log("[PlanSelection] Showing plan selection page");
   return <PlanSelection hasActiveSubscription={hasCompletedPayment} />;
 }
 
@@ -102,6 +85,9 @@ function PrivateRoute({
 function AppRoutes() {
   return (
     <>
+      {/* Tempo routes first to prevent conflicts */}
+      {import.meta.env.VITE_TEMPO === "true" && useRoutes(routes)}
+
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/login" element={<LoginForm />} />
@@ -125,8 +111,12 @@ function AppRoutes() {
         <Route path="/success" element={<Success />} />
         <Route path="/forgot-password" element={<ForgotPasswordForm />} />
         <Route path="/reset-password" element={<ResetPasswordForm />} />
+
+        {/* Tempo catchall route */}
+        {import.meta.env.VITE_TEMPO === "true" && (
+          <Route path="/tempobook/*" element={<div />} />
+        )}
       </Routes>
-      {import.meta.env.VITE_TEMPO === "true" && useRoutes(routes)}
     </>
   );
 }
