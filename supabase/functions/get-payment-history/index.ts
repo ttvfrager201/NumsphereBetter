@@ -1,13 +1,11 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "https://esm.sh/stripe@14.21.0";
 
-// CORS headers - All restrictions removed
+// CORS headers
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "*",
-  "Access-Control-Allow-Methods": "*",
-  "Access-Control-Max-Age": "86400",
-  "Access-Control-Allow-Credentials": "true",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
 };
 
 // Database types
@@ -24,35 +22,53 @@ type Database = {
     Tables: {
       user_subscriptions: {
         Row: {
+          cancel_at_period_end: boolean | null;
+          canceled_at: string | null;
           created_at: string | null;
+          current_period_end: string | null;
+          current_period_start: string | null;
           id: string;
+          last_payment_date: string | null;
           plan_id: string;
           status: string | null;
           stripe_checkout_session_id: string | null;
           stripe_customer_id: string | null;
           stripe_subscription_id: string | null;
+          trial_end: string | null;
           updated_at: string | null;
           user_id: string | null;
         };
         Insert: {
+          cancel_at_period_end?: boolean | null;
+          canceled_at?: string | null;
           created_at?: string | null;
+          current_period_end?: string | null;
+          current_period_start?: string | null;
           id?: string;
+          last_payment_date?: string | null;
           plan_id: string;
           status?: string | null;
           stripe_checkout_session_id?: string | null;
           stripe_customer_id?: string | null;
           stripe_subscription_id?: string | null;
+          trial_end?: string | null;
           updated_at?: string | null;
           user_id?: string | null;
         };
         Update: {
+          cancel_at_period_end?: boolean | null;
+          canceled_at?: string | null;
           created_at?: string | null;
+          current_period_end?: string | null;
+          current_period_start?: string | null;
           id?: string;
+          last_payment_date?: string | null;
           plan_id?: string;
           status?: string | null;
           stripe_checkout_session_id?: string | null;
           stripe_customer_id?: string | null;
           stripe_subscription_id?: string | null;
+          trial_end?: string | null;
           updated_at?: string | null;
           user_id?: string | null;
         };
@@ -85,13 +101,41 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { userId }: PaymentHistoryRequest = await req.json();
+    // Add request body validation
+    let requestBody;
+    try {
+      requestBody = await req.json();
+    } catch (parseError) {
+      console.error("Invalid JSON in request body:", parseError);
+      return new Response(
+        JSON.stringify({
+          error: "Invalid request format",
+          payments: [],
+          customerPortalUrl: null,
+          subscription: null,
+        }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
+
+    const { userId }: PaymentHistoryRequest = requestBody;
 
     if (!userId) {
-      return new Response(JSON.stringify({ error: "User ID is required" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({
+          error: "User ID is required",
+          payments: [],
+          customerPortalUrl: null,
+          subscription: null,
+        }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
     }
 
     // Initialize Supabase client with error handling
@@ -102,12 +146,13 @@ Deno.serve(async (req) => {
       console.error("Missing Supabase configuration");
       return new Response(
         JSON.stringify({
+          error: "Service configuration error",
           payments: [],
           customerPortalUrl: null,
           subscription: null,
         }),
         {
-          status: 200,
+          status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         },
       );
@@ -118,15 +163,16 @@ Deno.serve(async (req) => {
     // Initialize Stripe
     const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
     if (!stripeSecretKey) {
-      console.log("Stripe secret key not configured");
+      console.error("Stripe secret key not configured");
       return new Response(
         JSON.stringify({
+          error: "Payment service not configured",
           payments: [],
           customerPortalUrl: null,
           subscription: null,
         }),
         {
-          status: 200,
+          status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         },
       );
@@ -141,37 +187,61 @@ Deno.serve(async (req) => {
     try {
       const { data, error: subscriptionError } = await supabase
         .from("user_subscriptions")
-        .select("stripe_customer_id, stripe_subscription_id, plan_id")
+        .select(
+          "stripe_customer_id, stripe_subscription_id, plan_id, current_period_start, current_period_end, cancel_at_period_end, trial_end",
+        )
         .eq("user_id", userId)
         .eq("status", "active")
-        .single();
+        .maybeSingle();
 
-      if (subscriptionError) {
-        console.log("No active subscription found for user:", userId);
+      if (subscriptionError && subscriptionError.code !== "PGRST116") {
+        console.error(
+          "Database error fetching subscription:",
+          subscriptionError,
+        );
         return new Response(
           JSON.stringify({
+            error: "Database error",
             payments: [],
             customerPortalUrl: null,
             subscription: null,
           }),
           {
-            status: 200,
+            status: 500,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           },
         );
       }
 
       subscriptionData = data;
+
+      // If no active subscription, still try to get historical data
+      if (!subscriptionData) {
+        console.log("No active subscription found for user:", userId);
+        // Try to get any subscription data for this user
+        const { data: anySubData } = await supabase
+          .from("user_subscriptions")
+          .select(
+            "stripe_customer_id, stripe_subscription_id, plan_id, current_period_start, current_period_end, cancel_at_period_end, trial_end",
+          )
+          .eq("user_id", userId)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        subscriptionData = anySubData;
+      }
     } catch (dbError) {
       console.error("Database error:", dbError);
       return new Response(
         JSON.stringify({
+          error: "Database connection error",
           payments: [],
           customerPortalUrl: null,
           subscription: null,
         }),
         {
-          status: 200,
+          status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         },
       );
@@ -180,6 +250,7 @@ Deno.serve(async (req) => {
     if (!subscriptionData?.stripe_customer_id) {
       return new Response(
         JSON.stringify({
+          message: "No payment history available",
           payments: [],
           customerPortalUrl: null,
           subscription: null,
@@ -250,7 +321,7 @@ Deno.serve(async (req) => {
         });
       }
 
-      // Add invoice payments
+      // Add invoice payments with enhanced details
       for (const invoice of invoices.data) {
         if (
           invoice.status === "paid" ||
@@ -258,6 +329,40 @@ Deno.serve(async (req) => {
           invoice.status === "uncollectible"
         ) {
           const createdDate = new Date(invoice.created * 1000);
+
+          // Get customer billing details for PDF
+          let customerAddress = null;
+          try {
+            if (invoice.customer_address) {
+              customerAddress = {
+                line1: invoice.customer_address.line1,
+                line2: invoice.customer_address.line2,
+                city: invoice.customer_address.city,
+                state: invoice.customer_address.state,
+                postal_code: invoice.customer_address.postal_code,
+                country: invoice.customer_address.country,
+              };
+            } else {
+              // Fallback to customer object address
+              const customer = await stripe.customers.retrieve(customerId);
+              if (customer && !customer.deleted && customer.address) {
+                customerAddress = {
+                  line1: customer.address.line1,
+                  line2: customer.address.line2,
+                  city: customer.address.city,
+                  state: customer.address.state,
+                  postal_code: customer.address.postal_code,
+                  country: customer.address.country,
+                };
+              }
+            }
+          } catch (addressError) {
+            console.log(
+              "Could not fetch customer address:",
+              addressError.message,
+            );
+          }
+
           payments.push({
             id: invoice.id,
             amount: invoice.amount_paid || invoice.amount_due,
@@ -290,6 +395,16 @@ Deno.serve(async (req) => {
             receipt_url:
               invoice.invoice_pdf || invoice.hosted_invoice_url || null,
             invoice_number: invoice.number,
+            customer_address: customerAddress,
+            subtotal: invoice.subtotal,
+            tax: invoice.tax,
+            total: invoice.total,
+            period_start: invoice.period_start
+              ? new Date(invoice.period_start * 1000).toISOString()
+              : null,
+            period_end: invoice.period_end
+              ? new Date(invoice.period_end * 1000).toISOString()
+              : null,
           });
         }
       }
@@ -329,6 +444,9 @@ Deno.serve(async (req) => {
             status: subscription.status,
             current_period_end: subscription.current_period_end,
             current_period_start: subscription.current_period_start,
+            cancel_at_period_end: subscription.cancel_at_period_end,
+            trial_end: subscription.trial_end,
+            plan_id: subscriptionData.plan_id,
           };
         } catch (subError) {
           // Silently handle subscription fetch errors to reduce console noise
@@ -359,26 +477,34 @@ Deno.serve(async (req) => {
         },
       );
     } catch (stripeError) {
-      console.log("Stripe API error:", stripeError.message);
-      // Return empty array if Stripe API fails
+      console.error("Stripe API error:", stripeError);
+      // Return error response for Stripe API failures
       return new Response(
         JSON.stringify({
+          error: "Payment service temporarily unavailable",
           payments: [],
           customerPortalUrl: null,
           subscription: null,
-          error: "Unable to fetch payment data at this time",
         }),
         {
-          status: 200,
+          status: 503,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         },
       );
     }
   } catch (error) {
-    console.error("Error fetching payment history:", error);
-    return new Response(JSON.stringify({ error: "Internal server error" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    console.error("Unexpected error fetching payment history:", error);
+    return new Response(
+      JSON.stringify({
+        error: "An unexpected error occurred",
+        payments: [],
+        customerPortalUrl: null,
+        subscription: null,
+      }),
+      {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
+    );
   }
 });
