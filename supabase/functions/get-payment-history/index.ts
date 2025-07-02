@@ -101,15 +101,20 @@ Deno.serve(async (req) => {
   }
 
   try {
-    // Add request body validation
+    // Add request body validation with better error handling
     let requestBody;
     try {
-      requestBody = await req.json();
+      const bodyText = await req.text();
+      if (!bodyText || bodyText.trim() === "") {
+        throw new Error("Empty request body");
+      }
+      requestBody = JSON.parse(bodyText);
     } catch (parseError) {
-      console.error("Invalid JSON in request body:", parseError);
+      console.error("Request body parsing error:", parseError);
       return new Response(
         JSON.stringify({
           error: "Invalid request format",
+          details: "Request body must be valid JSON with userId field",
           payments: [],
           customerPortalUrl: null,
           subscription: null,
@@ -265,29 +270,62 @@ Deno.serve(async (req) => {
     const customerId = subscriptionData.stripe_customer_id;
 
     try {
-      // Fetch payment intents from Stripe with error handling
-      let paymentIntents;
-      let invoices;
+      // Fetch payment intents from Stripe with enhanced error handling
+      let paymentIntents = { data: [] };
+      let invoices = { data: [] };
+
+      // Retry logic for Stripe API calls
+      const retryStripeCall = async (
+        apiCall: () => Promise<any>,
+        callName: string,
+        maxRetries = 3,
+      ) => {
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          try {
+            return await apiCall();
+          } catch (error: any) {
+            console.error(
+              `${callName} attempt ${attempt} failed:`,
+              error.message,
+            );
+            if (attempt === maxRetries) {
+              throw error;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+          }
+        }
+      };
 
       try {
-        paymentIntents = await stripe.paymentIntents.list({
-          customer: customerId,
-          limit: 50,
-        });
-      } catch (piError) {
-        console.log("Error fetching payment intents:", piError.message);
-        paymentIntents = { data: [] };
+        paymentIntents = await retryStripeCall(
+          () =>
+            stripe.paymentIntents.list({
+              customer: customerId,
+              limit: 50,
+            }),
+          "Payment Intents fetch",
+        );
+      } catch (piError: any) {
+        console.error(
+          "Failed to fetch payment intents after retries:",
+          piError.message,
+        );
       }
 
       try {
-        // Fetch invoices from Stripe for subscription payments
-        invoices = await stripe.invoices.list({
-          customer: customerId,
-          limit: 50,
-        });
-      } catch (invoiceError) {
-        console.log("Error fetching invoices:", invoiceError.message);
-        invoices = { data: [] };
+        invoices = await retryStripeCall(
+          () =>
+            stripe.invoices.list({
+              customer: customerId,
+              limit: 50,
+            }),
+          "Invoices fetch",
+        );
+      } catch (invoiceError: any) {
+        console.error(
+          "Failed to fetch invoices after retries:",
+          invoiceError.message,
+        );
       }
 
       // Combine and format payment data
@@ -456,13 +494,28 @@ Deno.serve(async (req) => {
       // Create customer portal session for subscription management
       let customerPortalUrl = null;
       try {
-        const portalSession = await stripe.billingPortal.sessions.create({
-          customer: customerId,
-          return_url: `${req.headers.get("origin") || "https://app.numsphere.com"}/dashboard`,
-        });
+        const origin =
+          req.headers.get("origin") ||
+          req.headers.get("referer") ||
+          "https://app.numsphere.com";
+        const returnUrl =
+          origin.includes("localhost") ||
+          origin.includes("127.0.0.1") ||
+          origin.includes("tempo-dev.app")
+            ? `${origin}/dashboard`
+            : "https://app.numsphere.com/dashboard";
+
+        const portalSession = await retryStripeCall(
+          () =>
+            stripe.billingPortal.sessions.create({
+              customer: customerId,
+              return_url: returnUrl,
+            }),
+          "Customer Portal creation",
+        );
         customerPortalUrl = portalSession.url;
-      } catch (portalError) {
-        console.log("Error creating customer portal:", portalError.message);
+      } catch (portalError: any) {
+        console.error("Error creating customer portal:", portalError.message);
       }
 
       return new Response(

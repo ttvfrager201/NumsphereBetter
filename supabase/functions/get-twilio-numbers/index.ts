@@ -17,12 +17,26 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const {
-      country = "US",
-      areaCode,
-      limit = 20,
-      offset = 0,
-    } = await req.json();
+    // Add request body validation
+    let requestBody;
+    try {
+      requestBody = await req.json();
+    } catch (parseError) {
+      console.error("Invalid JSON in request body:", parseError);
+      return new Response(
+        JSON.stringify({
+          error: "Invalid request format",
+          numbers: [],
+          success: false,
+        }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
+
+    const { country = "US", areaCode, limit = 20, offset = 0 } = requestBody;
 
     const twilioAccountSid = Deno.env.get("TWILIO_ACCOUNT_SID");
     const twilioAuthToken = Deno.env.get("TWILIO_AUTH_TOKEN");
@@ -44,22 +58,56 @@ Deno.serve(async (req) => {
       url += `&AreaCode=${areaCode}`;
     }
 
-    // Note: Twilio doesn't support offset-based pagination for available numbers
-    // We'll fetch more numbers and handle pagination on the client side
-    if (offset > 0 && !areaCode) {
-      // For refresh requests without area code, we can try different parameters
-      // to get different sets of numbers
-      url += `&Contains=${Math.floor(Math.random() * 10)}`;
+    // Handle pagination by varying search parameters
+    if (offset > 0) {
+      // For subsequent requests, vary the search to get different numbers
+      const searchVariations = [
+        `&Contains=${Math.floor(Math.random() * 10)}`,
+        `&NearNumber=${areaCode ? `+1${areaCode}5551234` : "+15551234567"}`,
+        `&InRegion=${["CA", "NY", "TX", "FL", "IL"][Math.floor(Math.random() * 5)]}`,
+      ];
+      const variation = searchVariations[offset % searchVariations.length];
+      if (!areaCode || !url.includes("AreaCode")) {
+        url += variation;
+      }
     }
 
-    // Make request to Twilio API
-    const response = await fetch(url, {
-      method: "GET",
-      headers: {
-        Authorization: `Basic ${btoa(`${twilioAccountSid}:${twilioAuthToken}`)}`,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-    });
+    // Make request to Twilio API with retry logic
+    let response;
+    let retryCount = 0;
+    const maxRetries = 3;
+
+    while (retryCount < maxRetries) {
+      try {
+        response = await fetch(url, {
+          method: "GET",
+          headers: {
+            Authorization: `Basic ${btoa(`${twilioAccountSid}:${twilioAuthToken}`)}`,
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+        });
+        break;
+      } catch (fetchError) {
+        retryCount++;
+        console.error(`Twilio API attempt ${retryCount} failed:`, fetchError);
+
+        if (retryCount >= maxRetries) {
+          return new Response(
+            JSON.stringify({
+              error: "Failed to connect to Twilio service",
+              numbers: [],
+              success: false,
+            }),
+            {
+              status: 503,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 1000 * retryCount));
+      }
+    }
 
     if (!response.ok) {
       const errorText = await response.text();
