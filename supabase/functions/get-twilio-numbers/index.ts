@@ -150,15 +150,28 @@ Deno.serve(async (req) => {
     // Build Twilio API URL for available phone numbers
     let url = `https://api.twilio.com/2010-04-01/Accounts/${twilioAccountSid}/AvailablePhoneNumbers/${country.toUpperCase()}/Local.json?Limit=${limit}`;
 
-    // Add area code filter if provided
+    // Add area code filter if provided - this is the primary and ONLY filter when specified
     if (areaCode && areaCode.trim() !== "") {
-      url += `&AreaCode=${areaCode.trim()}`;
-    }
-
-    // For pagination/refresh, add variety to get different numbers
-    if (offset > 0 && (!areaCode || areaCode.trim() === "")) {
-      const randomDigit = Math.floor(Math.random() * 10);
-      url += `&Contains=${randomDigit}`;
+      const cleanAreaCode = areaCode.trim();
+      url += `&AreaCode=${cleanAreaCode}`;
+      console.log(
+        `[get-twilio-numbers] Filtering EXCLUSIVELY by area code: ${cleanAreaCode}`,
+      );
+      // When area code is specified, don't add any other filters
+    } else {
+      // Only add other filters when NO area code is specified
+      if (offset > 0) {
+        // For pagination without area code, we can use different strategies
+        const strategies = [
+          `&Contains=1`,
+          `&Contains=2`,
+          `&Contains=3`,
+          `&Contains=4`,
+          `&Contains=5`,
+        ];
+        const strategyIndex = Math.floor(offset / 30) % strategies.length;
+        url += strategies[strategyIndex];
+      }
     }
 
     console.log("Twilio API URL:", url.replace(twilioAccountSid, "***"));
@@ -224,13 +237,21 @@ Deno.serve(async (req) => {
 
       // Handle specific Twilio errors
       if (response.status === 400) {
-        if (errorText.includes("area code") || errorText.includes("AreaCode")) {
+        if (
+          errorText.includes("area code") ||
+          errorText.includes("AreaCode") ||
+          errorText.includes("Invalid AreaCode")
+        ) {
+          console.log(
+            `[get-twilio-numbers] No numbers found for area code ${areaCode}`,
+          );
           return new Response(
             JSON.stringify({
               numbers: [],
               success: true,
-              message: `No numbers available for area code ${areaCode}`,
-              code: "INVALID_AREA_CODE",
+              message: `No numbers available for area code ${areaCode}. Try a different area code.`,
+              code: "NO_NUMBERS_FOUND",
+              searchedAreaCode: areaCode,
             }),
             {
               status: 200,
@@ -317,6 +338,17 @@ Deno.serve(async (req) => {
 
     // Return successful response
     const numbers = data.available_phone_numbers || [];
+    const responseMessage =
+      numbers.length > 0
+        ? `Found ${numbers.length} available numbers${areaCode ? ` for area code ${areaCode}` : ""}`
+        : areaCode
+          ? `No numbers available for area code ${areaCode}. Try a different area code.`
+          : "No numbers available for the specified criteria";
+
+    console.log(
+      `[get-twilio-numbers] Returning ${numbers.length} numbers to client`,
+    );
+
     return new Response(
       JSON.stringify({
         numbers: numbers,
@@ -324,10 +356,8 @@ Deno.serve(async (req) => {
         total: numbers.length,
         country: country,
         areaCode: areaCode || null,
-        message:
-          numbers.length > 0
-            ? `Found ${numbers.length} available numbers`
-            : "No numbers available for the specified criteria",
+        message: responseMessage,
+        searchedAreaCode: areaCode || null,
       }),
       {
         status: 200,

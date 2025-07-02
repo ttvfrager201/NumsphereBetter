@@ -111,13 +111,18 @@ const Home = () => {
   const { user, signOut, checkPaymentStatus } = useAuth();
   const { toast } = useToast();
 
-  // Fetch user profile and subscription data with caching and error handling
+  // Fetch user profile and subscription data with aggressive caching
   useEffect(() => {
+    let isMounted = true;
+    let fetchInProgress = false;
+
     const fetchUserData = async () => {
-      if (!user) return;
+      if (!user?.id || fetchInProgress) return;
+
+      fetchInProgress = true;
 
       try {
-        // Check cache first
+        // Check cache first with longer cache time
         const cacheKey = `dashboard_data_${user.id}`;
         const cachedData = localStorage.getItem(cacheKey);
 
@@ -125,11 +130,14 @@ const Home = () => {
           try {
             const cached = JSON.parse(cachedData);
             const cacheAge = Date.now() - cached.timestamp;
-            // Use cache if less than 5 minutes old
-            if (cacheAge < 5 * 60 * 1000) {
-              setUserProfile(cached.profile);
-              setSubscriptionData(cached.subscription);
-              setLoadingSubscriptionData(false);
+            // Use cache if less than 30 minutes old (increased from 5)
+            if (cacheAge < 30 * 60 * 1000) {
+              if (isMounted) {
+                setUserProfile(cached.profile);
+                setSubscriptionData(cached.subscription);
+                setLoadingSubscriptionData(false);
+              }
+              fetchInProgress = false;
               return;
             }
           } catch (e) {
@@ -137,92 +145,93 @@ const Home = () => {
           }
         }
 
-        // Fetch data with retry logic
-        let retryCount = 0;
-        const maxRetries = 3;
+        // Throttle API calls - only fetch once per 5 minutes
+        const lastFetchKey = `last_dashboard_fetch_${user.id}`;
+        const lastFetch = localStorage.getItem(lastFetchKey);
+        const now = Date.now();
 
-        while (retryCount < maxRetries) {
-          try {
-            // Fetch user profile and subscription data in parallel with timeout
-            const fetchPromises = [
-              supabase
-                .from("users")
-                .select("full_name, avatar_url")
-                .eq("id", user.id)
-                .single(),
-              supabase
-                .from("user_subscriptions")
-                .select(
-                  "plan_id, status, created_at, stripe_customer_id, stripe_subscription_id",
-                )
-                .eq("user_id", user.id)
-                .eq("status", "active")
-                .maybeSingle(),
-            ];
+        if (lastFetch && now - parseInt(lastFetch) < 5 * 60 * 1000) {
+          // Use cached data if available, otherwise skip fetch
+          if (cachedData) {
+            try {
+              const cached = JSON.parse(cachedData);
+              if (isMounted) {
+                setUserProfile(cached.profile);
+                setSubscriptionData(cached.subscription);
+                setLoadingSubscriptionData(false);
+              }
+            } catch (e) {}
+          }
+          fetchInProgress = false;
+          return;
+        }
 
-            // Add timeout to prevent hanging requests
-            const timeoutPromise = new Promise((_, reject) =>
-              setTimeout(() => reject(new Error("Request timeout")), 10000),
-            );
+        localStorage.setItem(lastFetchKey, now.toString());
 
-            const results = await Promise.race([
-              Promise.all(fetchPromises),
-              timeoutPromise,
-            ]);
+        // Only fetch subscription data, use user metadata for profile
+        try {
+          const { data: subscriptionResult, error: subError } = await supabase
+            .from("user_subscriptions")
+            .select(
+              "plan_id, status, created_at, stripe_customer_id, stripe_subscription_id",
+            )
+            .eq("user_id", user.id)
+            .eq("status", "active")
+            .maybeSingle();
 
-            const [profileResult, subscriptionResult] = results as any[];
+          if (isMounted) {
+            // Use user metadata instead of fetching from users table
+            const profileData = {
+              full_name: user.user_metadata?.full_name || null,
+              avatar_url: user.user_metadata?.avatar_url || null,
+            };
 
-            if (profileResult.data) {
-              setUserProfile(profileResult.data);
+            setUserProfile(profileData);
+
+            if (subscriptionResult) {
+              setSubscriptionData(subscriptionResult);
             }
 
-            if (subscriptionResult.data) {
-              setSubscriptionData(subscriptionResult.data);
-            }
-
-            // Cache the results
+            // Cache the results for longer
             localStorage.setItem(
               cacheKey,
               JSON.stringify({
-                profile: profileResult.data,
-                subscription: subscriptionResult.data,
+                profile: profileData,
+                subscription: subscriptionResult,
                 timestamp: Date.now(),
               }),
             );
-
-            break; // Success, exit retry loop
-          } catch (error) {
-            console.error(`Attempt ${retryCount + 1} failed:`, error);
-            retryCount++;
-
-            if (retryCount >= maxRetries) {
-              console.error("All retry attempts failed for fetching user data");
-              // Try to use any cached data as fallback
-              const fallbackCache = localStorage.getItem(cacheKey);
-              if (fallbackCache) {
-                try {
-                  const cached = JSON.parse(fallbackCache);
-                  setUserProfile(cached.profile);
-                  setSubscriptionData(cached.subscription);
-                } catch (e) {}
-              }
-            } else {
-              // Wait before retrying
-              await new Promise((resolve) =>
-                setTimeout(resolve, 1000 * retryCount),
-              );
-            }
+          }
+        } catch (error) {
+          console.error("Failed to fetch subscription data:", error);
+          // Try to use any cached data as fallback
+          const fallbackCache = localStorage.getItem(cacheKey);
+          if (fallbackCache && isMounted) {
+            try {
+              const cached = JSON.parse(fallbackCache);
+              setUserProfile(cached.profile);
+              setSubscriptionData(cached.subscription);
+            } catch (e) {}
           }
         }
       } catch (error) {
-        console.error("Error fetching user data:", error);
+        console.error("Error in fetchUserData:", error);
       } finally {
-        setLoadingSubscriptionData(false);
+        if (isMounted) {
+          setLoadingSubscriptionData(false);
+        }
+        fetchInProgress = false;
       }
     };
 
-    fetchUserData();
-  }, [user]);
+    // Debounce the fetch call
+    const timeoutId = setTimeout(fetchUserData, 100);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timeoutId);
+    };
+  }, [user?.id]); // Only depend on user.id
 
   // Function to trigger loading state for demonstration
   const handleRefresh = () => {
@@ -248,6 +257,9 @@ const Home = () => {
           "supabase-functions-create-customer-portal",
           {
             body: { userId: user?.id },
+            headers: {
+              "Content-Type": "application/json",
+            },
           },
         );
 

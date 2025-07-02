@@ -70,13 +70,87 @@ export default function TwilioNumberManager() {
   const { user } = useAuth();
   const { toast } = useToast();
 
-  // Fetch user's existing numbers
+  // Fetch user's existing numbers - OPTIMIZED to prevent excessive calls
   useEffect(() => {
-    fetchUserNumbers();
-  }, [user]);
+    let isMounted = true;
+    let fetchInProgress = false;
+
+    const fetchNumbers = async () => {
+      if (!user?.id || fetchInProgress) return;
+
+      fetchInProgress = true;
+
+      // Check cache first
+      const cacheKey = `twilio_numbers_${user.id}`;
+      const cachedData = localStorage.getItem(cacheKey);
+
+      if (cachedData) {
+        try {
+          const cached = JSON.parse(cachedData);
+          const cacheAge = Date.now() - cached.timestamp;
+          // Use cache if less than 2 minutes old
+          if (cacheAge < 2 * 60 * 1000) {
+            if (isMounted) {
+              setUserNumbers(cached.numbers || []);
+              setIsLoading(false);
+            }
+            fetchInProgress = false;
+            return;
+          }
+        } catch (e) {
+          localStorage.removeItem(cacheKey);
+        }
+      }
+
+      try {
+        const { data, error } = await supabase
+          .from("twilio_numbers")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false });
+
+        if (isMounted) {
+          if (error) {
+            console.error("Error loading phone numbers:", error);
+            // Try to use cached data as fallback
+            if (cachedData) {
+              try {
+                const cached = JSON.parse(cachedData);
+                setUserNumbers(cached.numbers || []);
+              } catch (e) {}
+            }
+          } else {
+            setUserNumbers(data || []);
+            // Cache the results
+            localStorage.setItem(
+              cacheKey,
+              JSON.stringify({
+                numbers: data || [],
+                timestamp: Date.now(),
+              }),
+            );
+          }
+          setIsLoading(false);
+        }
+      } catch (error) {
+        console.error("Exception loading phone numbers:", error);
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      } finally {
+        fetchInProgress = false;
+      }
+    };
+
+    fetchNumbers();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [user?.id]); // Only depend on user.id
 
   const fetchUserNumbers = async () => {
-    if (!user) return;
+    if (!user?.id) return;
 
     try {
       const { data, error } = await supabase
@@ -86,17 +160,21 @@ export default function TwilioNumberManager() {
         .order("created_at", { ascending: false });
 
       if (error) {
-        toast({
-          title: "Error",
-          description: "Failed to load your phone numbers.",
-          variant: "destructive",
-        });
+        console.error("Error fetching user numbers:", error);
       } else {
         setUserNumbers(data || []);
+        // Update cache
+        const cacheKey = `twilio_numbers_${user.id}`;
+        localStorage.setItem(
+          cacheKey,
+          JSON.stringify({
+            numbers: data || [],
+            timestamp: Date.now(),
+          }),
+        );
       }
     } catch (error) {
-    } finally {
-      setIsLoading(false);
+      console.error("Error fetching user numbers:", error);
     }
   };
 
@@ -107,6 +185,11 @@ export default function TwilioNumberManager() {
         description: "Please sign in to search for numbers.",
         variant: "destructive",
       });
+      return;
+    }
+
+    // Prevent multiple simultaneous requests
+    if (isLoadingAvailable || isLoadingMore) {
       return;
     }
 
@@ -126,11 +209,20 @@ export default function TwilioNumberManager() {
     }
 
     try {
+      // Add rate limiting
+      const lastSearchTime = localStorage.getItem("last_number_search");
+      const now = Date.now();
+      if (lastSearchTime && now - parseInt(lastSearchTime) < 1000) {
+        // Wait 1 second between searches
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+      localStorage.setItem("last_number_search", now.toString());
+
       // Prepare payload, only include areaCode if non-empty
       const payload: any = {
         country: "US",
-        limit: 30,
-        offset: isLoadMore ? (currentPage + 1) * 30 : 0,
+        limit: 20, // Reduced from 30 to 20
+        offset: isLoadMore ? (currentPage + 1) * 20 : 0,
       };
       if (areaCode.trim() !== "") {
         payload.areaCode = areaCode.trim();
@@ -139,7 +231,7 @@ export default function TwilioNumberManager() {
       const { data, error } = await supabase.functions.invoke(
         "supabase-functions-get-twilio-numbers",
         {
-          body: JSON.stringify(payload), // <-- stringify here
+          body: JSON.stringify(payload),
           headers: {
             "Content-Type": "application/json",
           },
@@ -147,6 +239,7 @@ export default function TwilioNumberManager() {
       );
 
       if (error) {
+        console.error("Error loading available numbers:", error);
         toast({
           title: "Error",
           description: "Failed to load available numbers. Please try again.",
@@ -174,10 +267,10 @@ export default function TwilioNumberManager() {
         toast({
           title: "No Numbers Available",
           description: `No phone numbers available for area code ${areaCode}. Try a different area code or search without one.`,
-          variant: "destructive",
         });
       }
     } catch (error) {
+      console.error("Exception loading available numbers:", error);
       toast({
         title: "Error",
         description: "Failed to load available numbers. Please try again.",
@@ -582,9 +675,31 @@ export default function TwilioNumberManager() {
                 {availableNumbers.length === 0 &&
                   !isLoadingAvailable &&
                   hasSearched && (
-                    <div className="text-center py-8 text-gray-500">
-                      No numbers found. Try a different area code or search
-                      without one.
+                    <div className="text-center py-8 bg-gradient-to-r from-yellow-50 to-orange-50 rounded-lg border border-yellow-200">
+                      <div className="flex flex-col items-center gap-3">
+                        <span className="text-3xl">🔍</span>
+                        <h4 className="font-semibold text-gray-900">
+                          No Numbers Found
+                        </h4>
+                        <p className="text-gray-600 text-center max-w-md">
+                          {areaCode
+                            ? `No phone numbers available for area code ${areaCode}. Try a different area code or search without specifying one.`
+                            : "No numbers found for your search criteria. Try adjusting your search."}
+                        </p>
+                        {areaCode && (
+                          <Button
+                            onClick={() => {
+                              setAreaCode("");
+                              fetchAvailableNumbers(false);
+                            }}
+                            variant="outline"
+                            size="sm"
+                            className="mt-2"
+                          >
+                            Search All Area Codes
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   )}
               </div>
