@@ -95,9 +95,7 @@ const Home = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [subscriptionData, setSubscriptionData] = useState<any>(null);
-  const [stripeData, setStripeData] = useState<any>(null);
-  const [loadingStripeData, setLoadingStripeData] = useState(true);
-  const [stripeSubscription, setStripeSubscription] = useState<any>(null);
+  const [loadingSubscriptionData, setLoadingSubscriptionData] = useState(true);
   const { theme, toggleTheme } = useTheme();
 
   const [formData, setFormData] = useState({
@@ -113,40 +111,113 @@ const Home = () => {
   const { user, signOut, checkPaymentStatus } = useAuth();
   const { toast } = useToast();
 
-  // Fetch user profile and subscription data
+  // Fetch user profile and subscription data with caching and error handling
   useEffect(() => {
     const fetchUserData = async () => {
       if (!user) return;
 
       try {
-        // Fetch user profile
-        const { data: profileData } = await supabase
-          .from("users")
-          .select("full_name, avatar_url")
-          .eq("id", user.id)
-          .single();
+        // Check cache first
+        const cacheKey = `dashboard_data_${user.id}`;
+        const cachedData = localStorage.getItem(cacheKey);
 
-        if (profileData) {
-          setUserProfile(profileData);
+        if (cachedData) {
+          try {
+            const cached = JSON.parse(cachedData);
+            const cacheAge = Date.now() - cached.timestamp;
+            // Use cache if less than 5 minutes old
+            if (cacheAge < 5 * 60 * 1000) {
+              setUserProfile(cached.profile);
+              setSubscriptionData(cached.subscription);
+              setLoadingSubscriptionData(false);
+              return;
+            }
+          } catch (e) {
+            localStorage.removeItem(cacheKey);
+          }
         }
 
-        // Fetch subscription data - webhook managed
-        const { data: subData } = await supabase
-          .from("user_subscriptions")
-          .select(
-            "plan_id, status, created_at, stripe_customer_id, stripe_subscription_id",
-          )
-          .eq("user_id", user.id)
-          .eq("status", "active")
-          .maybeSingle();
+        // Fetch data with retry logic
+        let retryCount = 0;
+        const maxRetries = 3;
 
-        if (subData) {
-          setSubscriptionData(subData);
+        while (retryCount < maxRetries) {
+          try {
+            // Fetch user profile and subscription data in parallel with timeout
+            const fetchPromises = [
+              supabase
+                .from("users")
+                .select("full_name, avatar_url")
+                .eq("id", user.id)
+                .single(),
+              supabase
+                .from("user_subscriptions")
+                .select(
+                  "plan_id, status, created_at, stripe_customer_id, stripe_subscription_id",
+                )
+                .eq("user_id", user.id)
+                .eq("status", "active")
+                .maybeSingle(),
+            ];
+
+            // Add timeout to prevent hanging requests
+            const timeoutPromise = new Promise((_, reject) =>
+              setTimeout(() => reject(new Error("Request timeout")), 10000),
+            );
+
+            const results = await Promise.race([
+              Promise.all(fetchPromises),
+              timeoutPromise,
+            ]);
+
+            const [profileResult, subscriptionResult] = results as any[];
+
+            if (profileResult.data) {
+              setUserProfile(profileResult.data);
+            }
+
+            if (subscriptionResult.data) {
+              setSubscriptionData(subscriptionResult.data);
+            }
+
+            // Cache the results
+            localStorage.setItem(
+              cacheKey,
+              JSON.stringify({
+                profile: profileResult.data,
+                subscription: subscriptionResult.data,
+                timestamp: Date.now(),
+              }),
+            );
+
+            break; // Success, exit retry loop
+          } catch (error) {
+            console.error(`Attempt ${retryCount + 1} failed:`, error);
+            retryCount++;
+
+            if (retryCount >= maxRetries) {
+              console.error("All retry attempts failed for fetching user data");
+              // Try to use any cached data as fallback
+              const fallbackCache = localStorage.getItem(cacheKey);
+              if (fallbackCache) {
+                try {
+                  const cached = JSON.parse(fallbackCache);
+                  setUserProfile(cached.profile);
+                  setSubscriptionData(cached.subscription);
+                } catch (e) {}
+              }
+            } else {
+              // Wait before retrying
+              await new Promise((resolve) =>
+                setTimeout(resolve, 1000 * retryCount),
+              );
+            }
+          }
         }
       } catch (error) {
         console.error("Error fetching user data:", error);
       } finally {
-        setLoadingStripeData(false);
+        setLoadingSubscriptionData(false);
       }
     };
 
@@ -165,18 +236,14 @@ const Home = () => {
   const handleSidebarClick = async (label: string) => {
     if (label === "Settings") {
       setIsSettingsOpen(true);
-    } else if (label === "Change Plan") {
-      // Handle plan change - could redirect to plan selection or open a modal
-      toast({
-        title: "Plan Change",
-        description: "Plan change functionality will be available soon.",
-      });
-    } else if (
-      label === "Payment History" ||
-      label === "Subscription & Billing"
-    ) {
-      // Redirect to Stripe customer portal
+    } else if (label === "Subscription & Billing") {
+      // Redirect to Stripe customer portal with enhanced error handling
       try {
+        toast({
+          title: "Opening Billing Portal",
+          description: "Redirecting to secure billing portal...",
+        });
+
         const { data, error } = await supabase.functions.invoke(
           "supabase-functions-create-customer-portal",
           {
@@ -185,6 +252,7 @@ const Home = () => {
         );
 
         if (error) {
+          console.error("Billing portal error:", error);
           toast({
             title: "Error",
             description: "Unable to access billing portal. Please try again.",
@@ -194,7 +262,8 @@ const Home = () => {
         }
 
         if (data?.url) {
-          window.open(data.url, "_blank");
+          // Open in same tab for better user experience
+          window.location.href = data.url;
         } else {
           toast({
             title: "Billing Portal",

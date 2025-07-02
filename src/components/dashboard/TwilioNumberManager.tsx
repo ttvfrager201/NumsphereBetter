@@ -110,7 +110,6 @@ export default function TwilioNumberManager() {
       return;
     }
 
-    // Check if this is a new search (different area code or first search)
     const isNewSearch =
       !isLoadMore && (areaCode !== lastSearchAreaCode || !hasSearched);
 
@@ -118,7 +117,6 @@ export default function TwilioNumberManager() {
       setIsLoadingMore(true);
     } else {
       setIsLoadingAvailable(true);
-      // Reset everything for a new search
       if (isNewSearch) {
         setCurrentPage(0);
         setAvailableNumbers([]);
@@ -128,86 +126,61 @@ export default function TwilioNumberManager() {
     }
 
     try {
-      // Add retry logic for the function call
-      let retryCount = 0;
-      const maxRetries = 3;
-      let lastError = null;
-
-      while (retryCount < maxRetries) {
-        try {
-          const { data, error } = await supabase.functions.invoke(
-            "supabase-functions-get-twilio-numbers",
-            {
-              body: {
-                country: "US",
-                areaCode: areaCode || undefined,
-                limit: 30,
-                offset: isLoadMore ? (currentPage + 1) * 30 : 0,
-              },
-            },
-          );
-
-          if (error) {
-            throw error;
-          }
-
-          // Success - process the data
-          const numbersWithPricing = (data.numbers || []).map(
-            (number: AvailableNumber) => ({
-              ...number,
-              monthlyPrice: 1.25,
-            }),
-          );
-
-          if (isLoadMore) {
-            setAvailableNumbers((prev) => [...prev, ...numbersWithPricing]);
-            setCurrentPage((prev) => prev + 1);
-          } else {
-            // For new searches, replace the entire list
-            setAvailableNumbers(numbersWithPricing);
-            setCurrentPage(0);
-          }
-
-          if (numbersWithPricing.length === 0 && areaCode && !isLoadMore) {
-            toast({
-              title: "No Numbers Available",
-              description: `No phone numbers available for area code ${areaCode}. Try a different area code or search without one.`,
-              variant: "destructive",
-            });
-          }
-
-          // Success - break out of retry loop
-          break;
-        } catch (attemptError) {
-          lastError = attemptError;
-          retryCount++;
-          console.error(`Attempt ${retryCount} failed:`, attemptError);
-
-          if (retryCount < maxRetries) {
-            // Wait before retrying
-            await new Promise((resolve) =>
-              setTimeout(resolve, 1000 * retryCount),
-            );
-          }
-        }
+      // Prepare payload, only include areaCode if non-empty
+      const payload: any = {
+        country: "US",
+        limit: 30,
+        offset: isLoadMore ? (currentPage + 1) * 30 : 0,
+      };
+      if (areaCode.trim() !== "") {
+        payload.areaCode = areaCode.trim();
       }
 
-      // If all retries failed, show error
-      if (retryCount >= maxRetries) {
-        console.error("All retry attempts failed:", lastError);
+      const { data, error } = await supabase.functions.invoke(
+        "supabase-functions-get-twilio-numbers",
+        {
+          body: JSON.stringify(payload), // <-- stringify here
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      );
+
+      if (error) {
         toast({
-          title: "Connection Error",
-          description:
-            "Failed to load available numbers after multiple attempts. Please check your connection and try again.",
+          title: "Error",
+          description: "Failed to load available numbers. Please try again.",
           variant: "destructive",
         });
         return;
       }
+
+      const numbersWithPricing = (data.numbers || []).map(
+        (number: AvailableNumber) => ({
+          ...number,
+          monthlyPrice: 1.25,
+        }),
+      );
+
+      if (isLoadMore) {
+        setAvailableNumbers((prev) => [...prev, ...numbersWithPricing]);
+        setCurrentPage((prev) => prev + 1);
+      } else {
+        setAvailableNumbers(numbersWithPricing);
+        setCurrentPage(0);
+      }
+
+      if (numbersWithPricing.length === 0 && areaCode && !isLoadMore) {
+        toast({
+          title: "No Numbers Available",
+          description: `No phone numbers available for area code ${areaCode}. Try a different area code or search without one.`,
+          variant: "destructive",
+        });
+      }
     } catch (error) {
-      console.error("Unexpected error in fetchAvailableNumbers:", error);
       toast({
-        title: "Unexpected Error",
-        description: "An unexpected error occurred. Please try again.",
+        title: "Error",
+        description: "Failed to load available numbers. Please try again.",
         variant: "destructive",
       });
     } finally {

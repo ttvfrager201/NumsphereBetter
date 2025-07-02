@@ -65,58 +65,60 @@ const Sidebar = ({
   onToggleCollapse = () => {},
 }: SidebarProps) => {
   const { user } = useAuth();
-  const [subscriptionInfo, setSubscriptionInfo] =
-    useState<SubscriptionInfo | null>(null);
   const [userProfile, setUserProfile] = useState<{
     full_name: string | null;
   } | null>(null);
 
   useEffect(() => {
-    const fetchSubscriptionInfo = async () => {
+    const fetchUserProfile = async () => {
       if (!user) return;
 
       try {
-        // Fetch user profile
-        const { data: userData } = await supabase
+        // Only fetch user profile with error handling and caching
+        const cacheKey = `user_profile_${user.id}`;
+        const cachedProfile = localStorage.getItem(cacheKey);
+
+        if (cachedProfile) {
+          try {
+            const cached = JSON.parse(cachedProfile);
+            const cacheAge = Date.now() - cached.timestamp;
+            // Use cache if less than 10 minutes old
+            if (cacheAge < 10 * 60 * 1000) {
+              setUserProfile(cached.data);
+              return;
+            }
+          } catch (e) {
+            localStorage.removeItem(cacheKey);
+          }
+        }
+
+        const { data: userData, error } = await supabase
           .from("users")
           .select("full_name")
           .eq("id", user.id)
           .single();
 
+        if (error) {
+          console.error("Error fetching user profile:", error);
+          return;
+        }
+
         setUserProfile(userData);
 
-        // Fetch subscription info
-        const { data: subData, error: subError } = await supabase
-          .from("user_subscriptions")
-          .select("status, plan_id, created_at")
-          .eq("user_id", user.id)
-          .eq("status", "active")
-          .single();
-
-        if (subError && subError.code !== "PGRST116") {
-          console.error("Error fetching subscription:", subError);
-        }
-
-        if (subData) {
-          // Mock usage data - in real app, this would come from actual usage tracking
-          const mockUsage = {
-            credits_used: Math.floor(Math.random() * 800) + 100,
-            credits_total: 1000,
-          };
-
-          setSubscriptionInfo({
-            ...subData,
-            usage_percentage:
-              (mockUsage.credits_used / mockUsage.credits_total) * 100,
-            ...mockUsage,
-          });
-        }
+        // Cache the result
+        localStorage.setItem(
+          cacheKey,
+          JSON.stringify({
+            data: userData,
+            timestamp: Date.now(),
+          }),
+        );
       } catch (error) {
-        console.error("Error fetching subscription info:", error);
+        console.error("Error fetching user profile:", error);
       }
     };
 
-    fetchSubscriptionInfo();
+    fetchUserProfile();
   }, [user]);
 
   const formatDate = (dateString: string) => {
@@ -158,63 +160,26 @@ const Sidebar = ({
       </div>
 
       <ScrollArea className="flex-1 px-4">
-        {/* Subscription Info - Show when not collapsed and subscription info exists */}
-        {!isCollapsed && subscriptionInfo && (
+        {/* Welcome Section - Show when not collapsed */}
+        {!isCollapsed && (
           <div className="py-4">
             <div className="bg-gradient-to-br from-blue-50 to-purple-50 rounded-xl p-4 mb-4 border border-blue-100">
               <div className="mb-3">
                 <h3 className="text-sm font-medium text-gray-900 mb-1">
                   Hello, {userName}! 👋
                 </h3>
-                <div className="flex items-center gap-2">
-                  <Badge
-                    variant={
-                      subscriptionInfo.status === "active"
-                        ? "default"
-                        : "secondary"
-                    }
-                    className="text-xs"
-                  >
-                    {subscriptionInfo.status === "active"
-                      ? "✓ Active"
-                      : subscriptionInfo.status}
-                  </Badge>
-                  <span className="text-xs text-gray-600 capitalize">
-                    {subscriptionInfo.plan_id} Plan
-                  </span>
-                </div>
+                <p className="text-xs text-gray-600">Welcome to NumSphere</p>
               </div>
 
-              <div className="space-y-3">
-                <div>
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-xs font-medium text-gray-700">
-                      Usage
-                    </span>
-                    <span className="text-xs text-gray-600">
-                      {subscriptionInfo.credits_used} /{" "}
-                      {subscriptionInfo.credits_total} credits
-                    </span>
-                  </div>
-                  <Progress
-                    value={subscriptionInfo.usage_percentage}
-                    className="h-2"
-                  />
-                  <div className="text-xs text-gray-500 mt-1">
-                    {Math.round(subscriptionInfo.usage_percentage)}% used
-                  </div>
-                </div>
-
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="w-full text-xs h-8 bg-white/50 hover:bg-white/80"
-                  onClick={() => onItemClick("Change Plan")}
-                >
-                  <CreditCard size={12} className="mr-1" />
-                  Manage Plan
-                </Button>
-              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full text-xs h-8 bg-white/50 hover:bg-white/80"
+                onClick={() => onItemClick("Subscription & Billing")}
+              >
+                <CreditCard size={12} className="mr-1" />
+                Manage Billing
+              </Button>
             </div>
           </div>
         )}
