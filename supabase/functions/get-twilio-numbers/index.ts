@@ -131,14 +131,36 @@ Deno.serve(async (req) => {
       hasSid: !!twilioAccountSid,
       hasToken: !!twilioAuthToken,
       sidLength: twilioAccountSid?.length || 0,
+      sidPrefix: twilioAccountSid?.substring(0, 6) || "none",
     });
 
     if (!twilioAccountSid || !twilioAuthToken) {
-      console.error("Missing Twilio credentials");
+      console.error(
+        "Missing Twilio credentials - Please set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN environment variables",
+      );
       return new Response(
         JSON.stringify({
-          error: "Twilio service not configured. Please contact support.",
+          error:
+            "Twilio service not configured. Please contact support to set up Twilio credentials.",
           code: "TWILIO_CONFIG_ERROR",
+          details:
+            "Missing TWILIO_ACCOUNT_SID or TWILIO_AUTH_TOKEN environment variables",
+        }),
+        {
+          status: 503,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
+
+    // Validate Twilio Account SID format
+    if (!twilioAccountSid.startsWith("AC") || twilioAccountSid.length !== 34) {
+      console.error("Invalid Twilio Account SID format");
+      return new Response(
+        JSON.stringify({
+          error: "Invalid Twilio configuration. Please contact support.",
+          code: "TWILIO_CONFIG_ERROR",
+          details: "Twilio Account SID format is invalid",
         }),
         {
           status: 503,
@@ -149,15 +171,22 @@ Deno.serve(async (req) => {
 
     // Build Twilio API URL for available phone numbers
     let url = `https://api.twilio.com/2010-04-01/Accounts/${twilioAccountSid}/AvailablePhoneNumbers/${country.toUpperCase()}/Local.json?Limit=${limit}`;
+    let searchStrategy = "default";
 
     // Add area code filter if provided - this is the primary and ONLY filter when specified
     if (areaCode && areaCode.trim() !== "") {
       const cleanAreaCode = areaCode.trim();
+
+      // Primary strategy: Use AreaCode parameter for exact area code matching
       url += `&AreaCode=${cleanAreaCode}`;
+      searchStrategy = "area_code_exact";
+
       console.log(
-        `[get-twilio-numbers] Filtering EXCLUSIVELY by area code: ${cleanAreaCode}`,
+        `[get-twilio-numbers] Strategy: ${searchStrategy}, filtering by area code: ${cleanAreaCode}`,
       );
-      // When area code is specified, don't add any other filters
+      console.log(
+        `[get-twilio-numbers] Full URL (masked): ${url.replace(twilioAccountSid, "***")}`,
+      );
     } else {
       // Only add other filters when NO area code is specified
       if (offset > 0) {
@@ -171,6 +200,7 @@ Deno.serve(async (req) => {
         ];
         const strategyIndex = Math.floor(offset / 30) % strategies.length;
         url += strategies[strategyIndex];
+        searchStrategy = `pagination_${strategyIndex}`;
       }
     }
 
@@ -322,6 +352,20 @@ Deno.serve(async (req) => {
         "Twilio API success, found numbers:",
         data.available_phone_numbers?.length || 0,
       );
+
+      // Log first few numbers for debugging area code filtering
+      if (areaCode && data.available_phone_numbers?.length > 0) {
+        console.log(
+          `[get-twilio-numbers] First 3 numbers returned for area code ${areaCode}:`,
+        );
+        data.available_phone_numbers
+          .slice(0, 3)
+          .forEach((num: any, index: number) => {
+            console.log(
+              `  ${index + 1}. ${num.phone_number} (${num.locality}, ${num.region})`,
+            );
+          });
+      }
     } catch (parseError) {
       console.error("Error parsing Twilio response:", parseError);
       return new Response(
@@ -338,26 +382,78 @@ Deno.serve(async (req) => {
 
     // Return successful response
     const numbers = data.available_phone_numbers || [];
+
+    // Validate that returned numbers match the requested area code
+    let finalNumbers = numbers;
+    if (areaCode && numbers.length > 0) {
+      const matchingNumbers = numbers.filter((num: any) => {
+        const phoneAreaCode = num.phone_number
+          .replace(/\D/g, "")
+          .substring(1, 4);
+        return phoneAreaCode === areaCode;
+      });
+
+      console.log(
+        `[get-twilio-numbers] Area code validation: requested=${areaCode}, total_returned=${numbers.length}, matching=${matchingNumbers.length}`,
+      );
+
+      if (matchingNumbers.length === 0 && numbers.length > 0) {
+        console.warn(
+          `[get-twilio-numbers] WARNING: Twilio returned ${numbers.length} numbers but none match area code ${areaCode}`,
+        );
+        // Log the area codes that were actually returned
+        const returnedAreaCodes = numbers.slice(0, 5).map((num: any) => {
+          const phoneAreaCode = num.phone_number
+            .replace(/\D/g, "")
+            .substring(1, 4);
+          return `${num.phone_number} (${phoneAreaCode})`;
+        });
+        console.log(
+          `[get-twilio-numbers] Actually returned area codes:`,
+          returnedAreaCodes,
+        );
+
+        // Return empty array since none match the requested area code
+        finalNumbers = [];
+      } else if (matchingNumbers.length > 0) {
+        // Use only the matching numbers
+        finalNumbers = matchingNumbers;
+        console.log(
+          `[get-twilio-numbers] Using ${matchingNumbers.length} numbers that match area code ${areaCode}`,
+        );
+      }
+    } else if (areaCode && numbers.length === 0) {
+      console.log(
+        `[get-twilio-numbers] No numbers returned for area code ${areaCode}`,
+      );
+    }
+
     const responseMessage =
-      numbers.length > 0
-        ? `Found ${numbers.length} available numbers${areaCode ? ` for area code ${areaCode}` : ""}`
+      finalNumbers.length > 0
+        ? `Found ${finalNumbers.length} available numbers${areaCode ? ` for area code ${areaCode}` : ""}`
         : areaCode
           ? `No numbers available for area code ${areaCode}. Try a different area code.`
           : "No numbers available for the specified criteria";
 
     console.log(
-      `[get-twilio-numbers] Returning ${numbers.length} numbers to client`,
+      `[get-twilio-numbers] Returning ${finalNumbers.length} numbers to client`,
     );
 
     return new Response(
       JSON.stringify({
-        numbers: numbers,
+        numbers: finalNumbers,
         success: true,
-        total: numbers.length,
+        total: finalNumbers.length,
         country: country,
         areaCode: areaCode || null,
         message: responseMessage,
         searchedAreaCode: areaCode || null,
+        searchStrategy: searchStrategy,
+        debug: {
+          originalCount: numbers.length,
+          filteredCount: finalNumbers.length,
+          requestedAreaCode: areaCode,
+        },
       }),
       {
         status: 200,

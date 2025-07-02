@@ -99,6 +99,8 @@ Deno.serve(async (req) => {
       .from("user_subscriptions")
       .select("stripe_customer_id")
       .eq("user_id", userId)
+      .eq("status", "active")
+      .not("stripe_customer_id", "is", null)
       .maybeSingle();
 
     console.log("[create-customer-portal] Subscription query result:", {
@@ -145,7 +147,7 @@ Deno.serve(async (req) => {
     // Create customer portal session with proper return URL
     const origin = req.headers.get("origin") || req.headers.get("referer");
     let returnUrl =
-      "https://objective-mendeleev9-6adg8.view-3.tempo-dev.app/dashboard";
+      "https://priceless-hertz7-neblc.view-3.tempo-dev.app/dashboard";
 
     // Use the origin if it's available and looks like a valid URL
     if (origin) {
@@ -153,13 +155,16 @@ Deno.serve(async (req) => {
         const originUrl = new URL(origin);
         if (
           originUrl.hostname.includes("tempo-dev.app") ||
-          originUrl.hostname.includes("localhost")
+          originUrl.hostname.includes("localhost") ||
+          originUrl.hostname.includes("127.0.0.1") ||
+          originUrl.hostname.includes("priceless-hertz7-neblc")
         ) {
           returnUrl = `${origin}/dashboard`;
         }
       } catch (e) {
         console.log(
-          "[create-customer-portal] Invalid origin URL, using default",
+          "[create-customer-portal] Invalid origin URL, using default:",
+          e.message,
         );
       }
     }

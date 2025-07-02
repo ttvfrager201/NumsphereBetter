@@ -177,6 +177,8 @@ const Home = () => {
             )
             .eq("user_id", user.id)
             .eq("status", "active")
+            .not("stripe_subscription_id", "is", null)
+            .limit(1)
             .maybeSingle();
 
           if (isMounted) {
@@ -254,7 +256,7 @@ const Home = () => {
         });
 
         const { data, error } = await supabase.functions.invoke(
-          "supabase-functions-create-customer-portal",
+          "create-customer-portal",
           {
             body: { userId: user?.id },
             headers: {
@@ -418,7 +420,7 @@ const Home = () => {
   const handleCancelSubscription = async () => {
     try {
       const { data, error } = await supabase.functions.invoke(
-        "supabase-functions-cancel-subscription",
+        "cancel-subscription",
         {
           body: { userId: user?.id },
         },

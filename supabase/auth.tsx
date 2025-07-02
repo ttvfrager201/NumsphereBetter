@@ -47,18 +47,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return false;
     }
 
-    // Prevent multiple simultaneous calls with stronger throttling
+    // Prevent multiple simultaneous calls but reduce throttling
     const checkKey = `payment_check_${user.id}`;
     const lastCheck = localStorage.getItem(checkKey);
     const now = Date.now();
 
-    // Increase throttling to 30 seconds to prevent excessive calls
-    if (lastCheck && now - parseInt(lastCheck) < 30000) {
+    // Reduce throttling to 2 seconds for faster checks
+    if (lastCheck && now - parseInt(lastCheck) < 2000) {
       const cachedStatus = localStorage.getItem("payment_status_cache");
       if (cachedStatus) {
         try {
           const cached = JSON.parse(cachedStatus);
           if (cached.userId === user.id) {
+            console.log(
+              "[Auth] Using cached payment status:",
+              cached.hasPayment,
+            );
             setHasCompletedPayment(cached.hasPayment);
             return cached.hasPayment;
           }
@@ -68,16 +72,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     localStorage.setItem(checkKey, now.toString());
+    console.log("[Auth] Checking payment status for user:", user.id);
 
     try {
-      // Check cache first with longer cache time
+      // Check cache first but with shorter cache time for more accuracy
       const cachedStatus = localStorage.getItem("payment_status_cache");
       if (cachedStatus) {
         try {
           const cached = JSON.parse(cachedStatus);
           const cacheAge = Date.now() - cached.timestamp;
-          // Use cache if less than 30 minutes old
-          if (cacheAge < 30 * 60 * 1000 && cached.userId === user.id) {
+          // Use cache if less than 2 minutes old for faster updates
+          if (cacheAge < 2 * 60 * 1000 && cached.userId === user.id) {
+            console.log(
+              "[Auth] Using fresh cached payment status:",
+              cached.hasPayment,
+            );
             setHasCompletedPayment(cached.hasPayment);
             return cached.hasPayment;
           }
@@ -86,16 +95,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      // Only check subscription status, not user table to reduce API calls
+      // Check subscription status with optimized query
       const { data: subscriptionData, error: subError } = await supabase
         .from("user_subscriptions")
         .select("status, stripe_subscription_id")
         .eq("user_id", user.id)
         .eq("status", "active")
         .not("stripe_subscription_id", "is", null)
-        .order("updated_at", { ascending: false })
         .limit(1)
         .maybeSingle();
+
+      console.log("[Auth] Subscription query result:", {
+        subscriptionData,
+        subError,
+      });
 
       if (subError && subError.code !== "PGRST116") {
         console.error("[Auth] Error checking subscription status:", subError);
@@ -113,11 +126,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       // Check if user has active subscription
-      const hasValidPayment =
+      const hasValidPayment = !!(
         subscriptionData?.status === "active" &&
-        subscriptionData?.stripe_subscription_id;
+        subscriptionData?.stripe_subscription_id
+      );
 
-      // Cache the result for longer
+      console.log("[Auth] Payment status determined:", {
+        hasValidPayment,
+        subscriptionStatus: subscriptionData?.status,
+        hasStripeId: !!subscriptionData?.stripe_subscription_id,
+        planId: subscriptionData?.plan_id,
+      });
+
+      // Cache the result with shorter cache time
       localStorage.setItem(
         "payment_status_cache",
         JSON.stringify({

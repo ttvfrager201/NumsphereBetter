@@ -67,21 +67,41 @@ function PrivateRoute({
 }) {
   const { user, loading, hasCompletedPayment, checkPaymentStatus } = useAuth();
   const [isCheckingPayment, setIsCheckingPayment] = React.useState(false);
+  const [hasCheckedPayment, setHasCheckedPayment] = React.useState(false);
 
   // Additional payment status check for routes that require payment
   React.useEffect(() => {
-    if (user && requiresPayment && !hasCompletedPayment && !loading) {
-      console.log(
-        "[PrivateRoute] Double-checking payment status before redirect",
-      );
-      setIsCheckingPayment(true);
-      checkPaymentStatus().finally(() => {
-        setIsCheckingPayment(false);
+    if (user && requiresPayment && !loading && !hasCheckedPayment) {
+      console.log("[PrivateRoute] Checking payment status on route access", {
+        hasCompletedPayment,
+        requiresPayment,
       });
+      setIsCheckingPayment(true);
+      checkPaymentStatus()
+        .then((paymentStatus) => {
+          console.log(
+            "[PrivateRoute] Payment status check result:",
+            paymentStatus,
+          );
+          setHasCheckedPayment(true);
+          setIsCheckingPayment(false);
+        })
+        .catch((error) => {
+          console.error("[PrivateRoute] Payment status check failed:", error);
+          setHasCheckedPayment(true);
+          setIsCheckingPayment(false);
+        });
+    } else if (!requiresPayment) {
+      setHasCheckedPayment(true);
     }
-  }, [user, requiresPayment, hasCompletedPayment, loading, checkPaymentStatus]);
+  }, [user, requiresPayment, loading, hasCheckedPayment, checkPaymentStatus]);
 
-  if (loading || isCheckingPayment) {
+  // Reset check status when user changes
+  React.useEffect(() => {
+    setHasCheckedPayment(false);
+  }, [user?.id]);
+
+  if (loading || (requiresPayment && isCheckingPayment)) {
     return <LoadingScreen text="Loading..." />;
   }
 
@@ -89,11 +109,17 @@ function PrivateRoute({
     return <Navigate to="/" replace />;
   }
 
-  if (requiresPayment && !hasCompletedPayment) {
+  if (requiresPayment && hasCheckedPayment && !hasCompletedPayment) {
     console.log(
       "[PrivateRoute] Redirecting to plan selection - payment required but not completed",
+      { hasCompletedPayment, hasCheckedPayment },
     );
     return <Navigate to="/plan-selection" replace />;
+  }
+
+  // Only render children if we've completed the necessary checks
+  if (requiresPayment && !hasCheckedPayment) {
+    return <LoadingScreen text="Verifying subscription..." />;
   }
 
   return <>{children}</>;
