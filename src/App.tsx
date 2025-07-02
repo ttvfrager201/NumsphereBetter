@@ -65,9 +65,23 @@ function PrivateRoute({
   children: React.ReactNode;
   requiresPayment?: boolean;
 }) {
-  const { user, loading, hasCompletedPayment } = useAuth();
+  const { user, loading, hasCompletedPayment, checkPaymentStatus } = useAuth();
+  const [isCheckingPayment, setIsCheckingPayment] = React.useState(false);
 
-  if (loading) {
+  // Additional payment status check for routes that require payment
+  React.useEffect(() => {
+    if (user && requiresPayment && !hasCompletedPayment && !loading) {
+      console.log(
+        "[PrivateRoute] Double-checking payment status before redirect",
+      );
+      setIsCheckingPayment(true);
+      checkPaymentStatus().finally(() => {
+        setIsCheckingPayment(false);
+      });
+    }
+  }, [user, requiresPayment, hasCompletedPayment, loading, checkPaymentStatus]);
+
+  if (loading || isCheckingPayment) {
     return <LoadingScreen text="Loading..." />;
   }
 
@@ -76,6 +90,9 @@ function PrivateRoute({
   }
 
   if (requiresPayment && !hasCompletedPayment) {
+    console.log(
+      "[PrivateRoute] Redirecting to plan selection - payment required but not completed",
+    );
     return <Navigate to="/plan-selection" replace />;
   }
 

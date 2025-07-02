@@ -84,6 +84,8 @@ const PaymentHistory = () => {
   const [customerPortalUrl, setCustomerPortalUrl] = useState<string | null>(
     null,
   );
+  const [subscription, setSubscription] = useState<any>(null);
+  const [downloadingPdf, setDownloadingPdf] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchPaymentHistory = async () => {
@@ -100,6 +102,7 @@ const PaymentHistory = () => {
         if (data) {
           setPayments(data.payments || []);
           setCustomerPortalUrl(data.customerPortalUrl);
+          setSubscription(data.subscription);
         }
       } catch (error) {
         console.error("Payment history error:", error);
@@ -152,6 +155,95 @@ const PaymentHistory = () => {
     }
   };
 
+  const downloadPdfStatement = async (payment: any) => {
+    setDownloadingPdf(payment.id);
+    try {
+      // Generate PDF content
+      const pdfContent = generatePdfStatement(payment);
+
+      // Create blob and download
+      const blob = new Blob([pdfContent], { type: "text/html" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `statement-${payment.id.slice(-8)}-${payment.date.replace(/\s/g, "-")}.html`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Error downloading PDF:", error);
+    } finally {
+      setDownloadingPdf(null);
+    }
+  };
+
+  const generatePdfStatement = (payment: any) => {
+    return `
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Payment Statement - ${payment.id}</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; color: #333; }
+        .header { text-align: center; border-bottom: 2px solid #4F46E5; padding-bottom: 20px; margin-bottom: 30px; }
+        .company-name { font-size: 28px; font-weight: bold; color: #4F46E5; margin-bottom: 5px; }
+        .statement-title { font-size: 18px; color: #666; }
+        .details { margin: 30px 0; }
+        .detail-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #eee; }
+        .detail-label { font-weight: bold; }
+        .amount { font-size: 24px; font-weight: bold; color: #059669; }
+        .status { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; }
+        .status-succeeded { background: #D1FAE5; color: #059669; }
+        .footer { margin-top: 50px; text-align: center; color: #666; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="company-name">NumSphere</div>
+        <div class="statement-title">Payment Statement</div>
+    </div>
+    
+    <div class="details">
+        <div class="detail-row">
+            <span class="detail-label">Transaction ID:</span>
+            <span>${payment.id}</span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">Date:</span>
+            <span>${payment.date}</span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">Time:</span>
+            <span>${payment.time}</span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">Description:</span>
+            <span>${payment.description}</span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">Payment Method:</span>
+            <span>${payment.payment_method?.toUpperCase() || "CARD"}</span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">Status:</span>
+            <span class="status status-${payment.status}">${payment.status.toUpperCase()}</span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">Amount:</span>
+            <span class="amount">${formatAmount(payment.amount, payment.currency)}</span>
+        </div>
+    </div>
+    
+    <div class="footer">
+        <p>This is an official payment statement from NumSphere.</p>
+        <p>Generated on ${new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}</p>
+    </div>
+</body>
+</html>
+    `;
+  };
+
   if (loading) {
     return (
       <div className="space-y-6">
@@ -168,36 +260,78 @@ const PaymentHistory = () => {
   return (
     <div className="space-y-6">
       <div className="text-center py-4">
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">
-          Payment History
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">
+          Subscription & Billing
         </h2>
-        <p className="text-gray-600">
-          View all your payment transactions and billing history.
+        <p className="text-gray-600 dark:text-gray-400">
+          Manage your subscription, view payment history, and billing details.
         </p>
       </div>
 
       <div className="space-y-6">
-        {customerPortalUrl && (
-          <Card className="bg-blue-50 border-blue-200">
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="font-medium text-blue-900">
-                    Manage Your Subscription
-                  </h3>
-                  <p className="text-sm text-blue-700 mt-1">
-                    Update payment methods, download invoices, and manage
-                    billing
-                  </p>
+        {/* Detailed Subscription Information */}
+        {subscription && (
+          <Card className="bg-gradient-to-br from-blue-50 to-purple-50 border-blue-200">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-blue-900">
+                <CheckCircle className="h-5 w-5 text-green-500" />
+                Active Subscription Details
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">
+                      Plan Name
+                    </p>
+                    <p className="text-lg font-semibold text-gray-900">
+                      {subscription.name}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">Amount</p>
+                    <p className="text-lg font-semibold text-gray-900">
+                      {formatAmount(subscription.amount, subscription.currency)}{" "}
+                      / {subscription.interval}
+                    </p>
+                  </div>
                 </div>
-                <Button
-                  onClick={() => window.open(customerPortalUrl, "_blank")}
-                  className="bg-blue-600 hover:bg-blue-700 text-white"
-                >
-                  <CreditCard className="h-4 w-4 mr-2" />
-                  Manage Billing
-                </Button>
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">Status</p>
+                    <span className="inline-flex items-center rounded-md px-2 py-1 text-xs font-medium bg-green-50 text-green-700">
+                      {subscription.status.charAt(0).toUpperCase() +
+                        subscription.status.slice(1)}
+                    </span>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">
+                      Next Billing Date
+                    </p>
+                    <p className="text-lg font-semibold text-gray-900">
+                      {new Date(
+                        subscription.current_period_end * 1000,
+                      ).toLocaleDateString("en-US", {
+                        year: "numeric",
+                        month: "long",
+                        day: "numeric",
+                      })}
+                    </p>
+                  </div>
+                </div>
               </div>
+              {customerPortalUrl && (
+                <div className="pt-4 border-t border-blue-200">
+                  <Button
+                    onClick={() => window.open(customerPortalUrl, "_blank")}
+                    className="bg-blue-600 hover:bg-blue-700 text-white"
+                  >
+                    <CreditCard className="h-4 w-4 mr-2" />
+                    Manage Billing & Payment Methods
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
@@ -224,30 +358,88 @@ const PaymentHistory = () => {
                 {payments.map((payment) => (
                   <div
                     key={payment.id}
-                    className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                    className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
                   >
-                    <div className="flex items-center gap-3">
-                      {getStatusIcon(payment.status)}
-                      <div>
-                        <p className="font-medium text-gray-900">
-                          {payment.description || "Payment"}
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        {getStatusIcon(payment.status)}
+                        <div>
+                          <p className="font-medium text-gray-900">
+                            {payment.description || "Payment"}
+                          </p>
+                          <p className="text-sm text-gray-500">
+                            Transaction ID: {payment.id.slice(-8)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-semibold text-gray-900 text-lg">
+                          {formatAmount(payment.amount, payment.currency)}
                         </p>
-                        <p className="text-sm text-gray-500">
-                          {formatDate(payment.created)} • ID:{" "}
-                          {payment.id.slice(-8)}
+                        <span
+                          className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ${getStatusColor(payment.status)}`}
+                        >
+                          {payment.status.charAt(0).toUpperCase() +
+                            payment.status.slice(1)}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-gray-600 mb-3">
+                      <div>
+                        <span className="font-medium">Date:</span>
+                        <p>{payment.date || formatDate(payment.created)}</p>
+                      </div>
+                      <div>
+                        <span className="font-medium">Time:</span>
+                        <p>
+                          {payment.time ||
+                            new Date(payment.created).toLocaleTimeString(
+                              "en-US",
+                              {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                                second: "2-digit",
+                                timeZoneName: "short",
+                              },
+                            )}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="font-medium">Payment Method:</span>
+                        <p className="capitalize">
+                          {payment.payment_method || "Card"}
                         </p>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <p className="font-semibold text-gray-900">
-                        {formatAmount(payment.amount, payment.currency)}
-                      </p>
-                      <span
-                        className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ${getStatusColor(payment.status)}`}
+
+                    <div className="flex justify-end">
+                      <Button
+                        onClick={() => downloadPdfStatement(payment)}
+                        disabled={downloadingPdf === payment.id}
+                        variant="outline"
+                        size="sm"
+                        className="text-blue-600 border-blue-200 hover:bg-blue-50"
                       >
-                        {payment.status.charAt(0).toUpperCase() +
-                          payment.status.slice(1)}
-                      </span>
+                        {downloadingPdf === payment.id ? (
+                          <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <svg
+                            className="h-4 w-4 mr-2"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                            />
+                          </svg>
+                        )}
+                        Download Statement
+                      </Button>
                     </div>
                   </div>
                 ))}
@@ -509,8 +701,12 @@ const Home = () => {
     }
   };
   return (
-    <div className="min-h-screen bg-[#f5f5f7] dark:bg-gray-900 transition-colors duration-200">
-      <TopNavigation onSettingsClick={() => setIsSettingsOpen(true)} />
+    <div className="h-screen bg-[#f5f5f7] dark:bg-gray-900 transition-colors duration-200 overflow-hidden">
+      <TopNavigation
+        onSettingsClick={() => setIsSettingsOpen(true)}
+        theme={theme}
+        onThemeToggle={toggleTheme}
+      />
       <div className="flex h-[calc(100vh-64px)] mt-16">
         <Sidebar
           activeItem={activeTab}
@@ -518,196 +714,227 @@ const Home = () => {
           isCollapsed={isSidebarCollapsed}
           onToggleCollapse={handleToggleSidebar}
         />
-        <main className="flex-1 overflow-auto hide-scrollbar">
-          <div className="container mx-auto px-6 pt-4 pb-2 flex justify-between items-center">
-            <Button
-              onClick={toggleTheme}
-              variant="outline"
-              size="icon"
-              className="rounded-full h-9 w-9 bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-            >
-              {theme === "light" ? (
-                <Moon className="h-4 w-4 text-gray-600 dark:text-gray-300" />
-              ) : (
-                <Sun className="h-4 w-4 text-gray-600 dark:text-gray-300" />
+        <main className="flex-1 bg-[#f5f5f7] dark:bg-gray-900 overflow-hidden">
+          <div className="h-full overflow-y-auto">
+            <div className="max-w-7xl mx-auto px-6 pt-4 pb-2 flex justify-between items-center">
+              <div></div>
+              <Button
+                onClick={handleRefresh}
+                className="bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white rounded-full px-4 h-9 shadow-sm transition-colors flex items-center gap-2"
+              >
+                <RefreshCw
+                  className={`h-4 w-4 ${loading ? "animate-spin" : ""}`}
+                />
+                {loading ? "Loading..." : "Refresh Dashboard"}
+              </Button>
+            </div>
+            <div
+              className={cn(
+                "max-w-7xl mx-auto p-6 space-y-8 pb-8",
+                "transition-all duration-300 ease-in-out",
               )}
-            </Button>
-            <Button
-              onClick={handleRefresh}
-              className="bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white rounded-full px-4 h-9 shadow-sm transition-colors flex items-center gap-2"
             >
-              <RefreshCw
-                className={`h-4 w-4 ${loading ? "animate-spin" : ""}`}
-              />
-              {loading ? "Loading..." : "Refresh Dashboard"}
-            </Button>
-          </div>
-          <div
-            className={cn(
-              "container mx-auto p-6 space-y-8",
-              "transition-all duration-300 ease-in-out",
-            )}
-          >
-            {/* Content based on active tab */}
-            {activeTab === "Home" && (
-              <div className="space-y-8">
-                {/* Welcome Section */}
-                <div className="text-center py-12 bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 rounded-2xl border border-blue-100 dark:border-blue-800">
-                  <h1 className="text-5xl font-bold text-gray-900 dark:text-gray-100 mb-4">
-                    Welcome to NumSphere! 👋
-                  </h1>
-                  <p className="text-xl text-gray-600 dark:text-gray-300 mb-2">
-                    Hello,{" "}
-                    {userProfile?.full_name ||
-                      user?.user_metadata?.full_name ||
-                      user?.email?.split("@")[0] ||
-                      "User"}
-                    !
-                  </p>
-                  <p className="text-gray-500 dark:text-gray-400">
-                    Manage your virtual phone numbers and call flows with ease
-                  </p>
-                </div>
+              {/* Content based on active tab */}
+              {activeTab === "Home" && (
+                <div className="space-y-8">
+                  {/* Welcome Section */}
+                  <div className="text-center py-12 bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 rounded-2xl border border-blue-100 dark:border-blue-800">
+                    <h1 className="text-5xl font-bold text-gray-900 dark:text-gray-100 mb-4">
+                      Welcome to NumSphere! 👋
+                    </h1>
+                    <p className="text-xl text-gray-600 dark:text-gray-300 mb-2">
+                      Hello,{" "}
+                      {userProfile?.full_name ||
+                        user?.user_metadata?.full_name ||
+                        user?.email?.split("@")[0] ||
+                        "User"}
+                      !
+                    </p>
+                    <p className="text-gray-500 dark:text-gray-400">
+                      Manage your virtual phone numbers and call flows with ease
+                    </p>
+                  </div>
 
-                {/* Dashboard Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                  <Card className="bg-white dark:bg-gray-800 hover:shadow-lg transition-shadow">
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                        Subscription Status
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="flex items-center gap-2">
-                        {subscriptionData?.status === "active" ? (
-                          <CheckCircle className="h-5 w-5 text-green-500" />
-                        ) : (
-                          <XCircle className="h-5 w-5 text-red-500" />
-                        )}
-                        <span className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-                          {subscriptionData?.status === "active"
-                            ? "Active"
-                            : "Inactive"}
-                        </span>
-                      </div>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                        {subscriptionData?.plan_id
-                          ? `${subscriptionData.plan_id.charAt(0).toUpperCase() + subscriptionData.plan_id.slice(1)} Plan`
-                          : "No Plan"}
-                      </p>
-                    </CardContent>
-                  </Card>
+                  {/* Dashboard Cards */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <Card className="bg-white dark:bg-gray-800 hover:shadow-lg transition-shadow border-0 shadow-sm">
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                          Subscription
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="flex items-center gap-2 mb-3">
+                          {subscriptionData?.status === "active" ? (
+                            <CheckCircle className="h-5 w-5 text-green-500" />
+                          ) : (
+                            <XCircle className="h-5 w-5 text-red-500" />
+                          )}
+                          <span className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                            {subscriptionData?.plan_id
+                              ? `${subscriptionData.plan_id.charAt(0).toUpperCase() + subscriptionData.plan_id.slice(1)} Plan`
+                              : "No Plan"}
+                          </span>
+                        </div>
+                        <div className="space-y-2 text-sm">
+                          <div className="flex justify-between">
+                            <span className="text-gray-500 dark:text-gray-400">
+                              Status:
+                            </span>
+                            <span
+                              className={
+                                subscriptionData?.status === "active"
+                                  ? "text-green-600 font-medium"
+                                  : "text-red-600 font-medium"
+                              }
+                            >
+                              {subscriptionData?.status === "active"
+                                ? "Active"
+                                : "Inactive"}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-500 dark:text-gray-400">
+                              Amount:
+                            </span>
+                            <span className="font-medium text-gray-900 dark:text-gray-100">
+                              $29.99/month
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-500 dark:text-gray-400">
+                              Next billing:
+                            </span>
+                            <span className="font-medium text-gray-900 dark:text-gray-100">
+                              {subscriptionData?.created_at
+                                ? new Date(
+                                    new Date(
+                                      subscriptionData.created_at,
+                                    ).getTime() +
+                                      30 * 24 * 60 * 60 * 1000,
+                                  ).toLocaleDateString("en-US", {
+                                    month: "short",
+                                    day: "numeric",
+                                    year: "numeric",
+                                  })
+                                : "N/A"}
+                            </span>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
 
-                  <Card className="bg-white dark:bg-gray-800 hover:shadow-lg transition-shadow">
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                        Phone Numbers
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="flex items-center gap-2">
-                        <span className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-                          0
-                        </span>
-                      </div>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                        Active numbers
-                      </p>
-                    </CardContent>
-                  </Card>
+                    <Card className="bg-white dark:bg-gray-800 hover:shadow-lg transition-shadow border-0 shadow-sm">
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                          Phone Numbers
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="flex items-center gap-2">
+                          <span className="text-3xl font-bold text-gray-900 dark:text-gray-100">
+                            0
+                          </span>
+                        </div>
+                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                          Active numbers
+                        </p>
+                      </CardContent>
+                    </Card>
 
-                  <Card className="bg-white dark:bg-gray-800 hover:shadow-lg transition-shadow">
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                        Minutes Used
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="flex items-center gap-2">
-                        <span className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-                          0
-                        </span>
-                      </div>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                        This month
-                      </p>
-                    </CardContent>
-                  </Card>
+                    <Card className="bg-white dark:bg-gray-800 hover:shadow-lg transition-shadow border-0 shadow-sm">
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                          Minutes Used
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="flex items-center gap-2">
+                          <span className="text-3xl font-bold text-gray-900 dark:text-gray-100">
+                            0
+                          </span>
+                        </div>
+                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                          This month
+                        </p>
+                      </CardContent>
+                    </Card>
 
-                  <Card className="bg-white dark:bg-gray-800 hover:shadow-lg transition-shadow">
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                        Call Flows
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="flex items-center gap-2">
-                        <span className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-                          0
-                        </span>
-                      </div>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                        Active flows
-                      </p>
-                    </CardContent>
-                  </Card>
-                </div>
+                    <Card className="bg-white dark:bg-gray-800 hover:shadow-lg transition-shadow border-0 shadow-sm">
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                          Call Flows
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="flex items-center gap-2">
+                          <span className="text-3xl font-bold text-gray-900 dark:text-gray-100">
+                            0
+                          </span>
+                        </div>
+                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                          Active flows
+                        </p>
+                      </CardContent>
+                    </Card>
+                  </div>
 
-                {/* Quick Actions */}
-                <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 border border-gray-200 dark:border-gray-700">
-                  <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">
-                    Quick Actions
-                  </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <Button
-                      onClick={() => setActiveTab("Select Number")}
-                      className="h-16 bg-blue-600 hover:bg-blue-700 text-white rounded-xl flex flex-col items-center justify-center gap-2"
-                    >
-                      <span className="text-lg">📞</span>
-                      <span>Get Phone Number</span>
-                    </Button>
-                    <Button
-                      onClick={() => setActiveTab("Call Flows")}
-                      variant="outline"
-                      className="h-16 rounded-xl flex flex-col items-center justify-center gap-2"
-                    >
-                      <span className="text-lg">🔄</span>
-                      <span>Setup Call Flows</span>
-                    </Button>
-                    <Button
-                      onClick={() => setActiveTab("Payment History")}
-                      variant="outline"
-                      className="h-16 rounded-xl flex flex-col items-center justify-center gap-2"
-                    >
-                      <span className="text-lg">💳</span>
-                      <span>View Payments</span>
-                    </Button>
+                  {/* Quick Actions */}
+                  <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 border-0 shadow-sm">
+                    <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-6">
+                      Quick Actions
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <Button
+                        onClick={() => setActiveTab("Select Number")}
+                        className="h-20 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white rounded-xl flex flex-col items-center justify-center gap-2 shadow-lg hover:shadow-xl transition-all"
+                      >
+                        <span className="text-2xl">📞</span>
+                        <span className="font-medium">Get Phone Number</span>
+                      </Button>
+                      <Button
+                        onClick={() => setActiveTab("Call Flows")}
+                        variant="outline"
+                        className="h-20 rounded-xl flex flex-col items-center justify-center gap-2 border-2 hover:bg-gray-50 dark:hover:bg-gray-700 transition-all"
+                      >
+                        <span className="text-2xl">🔄</span>
+                        <span className="font-medium">Setup Call Flows</span>
+                      </Button>
+                      <Button
+                        onClick={() => setActiveTab("Subscription & Billing")}
+                        variant="outline"
+                        className="h-20 rounded-xl flex flex-col items-center justify-center gap-2 border-2 hover:bg-gray-50 dark:hover:bg-gray-700 transition-all"
+                      >
+                        <span className="text-2xl">💳</span>
+                        <span className="font-medium">View Billing</span>
+                      </Button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {activeTab === "Select Number" && (
-              <div className="space-y-6">
-                <TwilioNumberManager />
-              </div>
-            )}
+              {activeTab === "Select Number" && (
+                <div className="space-y-6">
+                  <TwilioNumberManager />
+                </div>
+              )}
 
-            {activeTab === "Call Flows" && (
-              <div className="text-center py-8">
-                <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-4">
-                  Call Flows
-                </h2>
-                <p className="text-gray-600 dark:text-gray-300">
-                  Design and manage your custom call flows here.
-                </p>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
-                  Coming soon...
-                </p>
-              </div>
-            )}
+              {activeTab === "Call Flows" && (
+                <div className="text-center py-8">
+                  <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-4">
+                    Call Flows
+                  </h2>
+                  <p className="text-gray-600 dark:text-gray-300">
+                    Design and manage your custom call flows here.
+                  </p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+                    Coming soon...
+                  </p>
+                </div>
+              )}
 
-            {activeTab === "Payment History" && <PaymentHistory />}
+              {activeTab === "Subscription & Billing" && <PaymentHistory />}
+            </div>
           </div>
         </main>
       </div>

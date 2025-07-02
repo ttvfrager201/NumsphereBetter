@@ -43,11 +43,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const checkPaymentStatus = async (): Promise<boolean> => {
     if (!user) {
       setHasCompletedPayment(false);
+      localStorage.removeItem("payment_status_cache");
       return false;
     }
 
     try {
-      console.log("[Auth] Checking payment status for user:", user.id);
+      // Check cache first to avoid unnecessary API calls
+      const cachedStatus = localStorage.getItem("payment_status_cache");
+      if (cachedStatus) {
+        try {
+          const cached = JSON.parse(cachedStatus);
+          const cacheAge = Date.now() - cached.timestamp;
+          // Use cache if less than 5 minutes old
+          if (cacheAge < 5 * 60 * 1000 && cached.userId === user.id) {
+            setHasCompletedPayment(cached.hasPayment);
+            return cached.hasPayment;
+          }
+        } catch (e) {
+          localStorage.removeItem("payment_status_cache");
+        }
+      }
 
       // Check both user payment flag and subscription status
       const [userResult, subscriptionResult] = await Promise.all([
@@ -70,12 +85,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { data: userData, error: userError } = userResult;
       const { data: subscriptionData, error: subError } = subscriptionResult;
 
-      console.log("[Auth] User data:", userData);
-      console.log("[Auth] Subscription data:", subscriptionData);
-
       if (userError && userError.code !== "PGRST116") {
         console.error("[Auth] Error checking user payment status:", userError);
-        // Don't change state on error to preserve current state
+        // Return cached value if available, otherwise preserve current state
+        const fallbackCache = localStorage.getItem("payment_status_cache");
+        if (fallbackCache) {
+          try {
+            const cached = JSON.parse(fallbackCache);
+            if (cached.userId === user.id) {
+              setHasCompletedPayment(cached.hasPayment);
+              return cached.hasPayment;
+            }
+          } catch (e) {}
+        }
         return hasCompletedPayment;
       }
 
@@ -85,18 +107,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         subscriptionData?.status === "active" &&
         subscriptionData?.stripe_subscription_id;
 
-      console.log("[Auth] Payment status result:", {
-        userPaymentFlag: userData?.has_completed_payment,
-        subscriptionStatus: subscriptionData?.status,
-        hasStripeId: !!subscriptionData?.stripe_subscription_id,
-        finalResult: hasValidPayment,
-      });
+      // Cache the result
+      localStorage.setItem(
+        "payment_status_cache",
+        JSON.stringify({
+          hasPayment: hasValidPayment,
+          userId: user.id,
+          timestamp: Date.now(),
+        }),
+      );
 
       setHasCompletedPayment(hasValidPayment);
       return hasValidPayment;
     } catch (error) {
       console.error("[Auth] Error checking payment status:", error);
-      // Don't change state on error to preserve current state
+      // Try to use cached value on error
+      const fallbackCache = localStorage.getItem("payment_status_cache");
+      if (fallbackCache) {
+        try {
+          const cached = JSON.parse(fallbackCache);
+          if (cached.userId === user.id) {
+            console.log("[Auth] Using fallback cached status due to error");
+            setHasCompletedPayment(cached.hasPayment);
+            return cached.hasPayment;
+          }
+        } catch (e) {}
+      }
       return hasCompletedPayment;
     }
   };
@@ -126,12 +162,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       setUser(session?.user ?? null);
       if (session?.user) {
-        // Only check payment status on initial load, not on tab focus
-        if (!hasCompletedPayment) {
-          await checkPaymentStatus();
-        }
+        // Always check payment status when session is restored
+        await checkPaymentStatus();
       } else {
         setHasCompletedPayment(false);
+        localStorage.removeItem("payment_status_cache");
       }
       setLoading(false);
     });
@@ -146,20 +181,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         event === "TOKEN_REFRESHED"
       ) {
         setUser(session?.user ?? null);
-        if (session?.user && event === "SIGNED_IN") {
-          // Only check payment status on actual sign in, not token refresh
+        if (session?.user) {
+          // Check payment status for all auth events with user
           await checkPaymentStatus();
         } else if (event === "SIGNED_OUT") {
           setHasCompletedPayment(false);
+          localStorage.removeItem("payment_status_cache");
         }
         setLoading(false);
       }
     });
 
+    // Handle visibility change to refresh payment status when tab becomes visible
+    const handleVisibilityChange = async () => {
+      if (!document.hidden && user) {
+        // Small delay to ensure any pending operations complete
+        setTimeout(async () => {
+          await checkPaymentStatus();
+        }, 500);
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
     return () => {
       subscription.unsubscribe();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, []);
+  }, [user]);
 
   const signUp = async (email: string, password: string, fullName: string) => {
     // Enhanced input validation
