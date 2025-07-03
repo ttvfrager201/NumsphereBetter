@@ -12,7 +12,7 @@ const corsHeaders = {
 async function getFrontendBaseUrl(): Promise<string> {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_KEY");
+    const supabaseServiceKey = Deno.env.get("SERVICE_KEY");
 
     if (!supabaseUrl || !supabaseServiceKey) {
       throw new Error("Missing Supabase configuration");
@@ -40,14 +40,14 @@ async function getFrontendBaseUrl(): Promise<string> {
     // Fallback to environment variable or default
     const fallbackUrl =
       Deno.env.get("FRONTEND_URL") ||
-      "https://epic-lehmann4-8kltr.view-3.tempo-dev.app";
+      "https://lucid-margulis8-9p4ak.view-3.tempo-dev.app";
     console.log("Using fallback frontend URL:", fallbackUrl);
     return fallbackUrl;
   } catch (error) {
     console.error("Error fetching frontend URL from database:", error);
     const fallbackUrl =
       Deno.env.get("FRONTEND_URL") ||
-      "https://epic-lehmann4-8kltr.view-3.tempo-dev.app";
+      "https://lucid-margulis8-9p4ak.view-3.tempo-dev.app";
     console.log("Using fallback frontend URL due to error:", fallbackUrl);
     return fallbackUrl;
   }

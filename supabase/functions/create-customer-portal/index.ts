@@ -4,8 +4,9 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 // CORS headers - Enhanced for better compatibility
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "*",
-  "Access-Control-Allow-Methods": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Max-Age": "86400",
 };
 
@@ -33,10 +34,26 @@ type Database = {
 Deno.serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
-    return new Response(null, {
-      status: 204,
+    console.log("Handling CORS preflight request for customer portal");
+    return new Response("ok", {
+      status: 200,
       headers: corsHeaders,
     });
+  }
+
+  // Only allow POST requests
+  if (req.method !== "POST") {
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: "Method not allowed",
+        message: "Only POST requests are allowed",
+      }),
+      {
+        status: 405,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
+    );
   }
 
   let body;
@@ -54,10 +71,17 @@ Deno.serve(async (req) => {
     const { userId } = body;
 
     if (!userId) {
-      return new Response(JSON.stringify({ error: "User ID is required" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "User ID is required",
+          message: "User ID must be provided to create customer portal session",
+        }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
     }
 
     // Initialize environment variables
@@ -67,7 +91,11 @@ Deno.serve(async (req) => {
 
     if (!stripeSecretKey || !supabaseUrl || !supabaseServiceKey) {
       return new Response(
-        JSON.stringify({ error: "Missing environment variables" }),
+        JSON.stringify({
+          success: false,
+          error: "Missing environment variables",
+          message: "Server configuration error. Please contact support.",
+        }),
         {
           status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -90,6 +118,7 @@ Deno.serve(async (req) => {
       console.log("No subscription data found for user:", userId);
       return new Response(
         JSON.stringify({
+          success: false,
           error: "No active subscription found",
           message:
             "You need an active subscription to access the billing portal",
@@ -107,7 +136,7 @@ Deno.serve(async (req) => {
     const origin =
       req.headers.get("origin") ||
       req.headers.get("referer")?.split("/").slice(0, 3).join("/") ||
-      "https://epic-lehmann4-8kltr.view-3.tempo-dev.app";
+      "https://lucid-margulis8-9p4ak.view-3.tempo-dev.app";
 
     console.log("Creating customer portal for customer:", customerId);
     console.log("Return URL:", `${origin}/dashboard`);
@@ -135,7 +164,9 @@ Deno.serve(async (req) => {
     console.error("Error creating customer portal:", error);
     return new Response(
       JSON.stringify({
+        success: false,
         error: "Failed to create customer portal",
+        message: "Unable to create billing portal session. Please try again.",
         details: error.message,
       }),
       {

@@ -60,6 +60,8 @@ export default function Success() {
         );
 
         try {
+          console.log("Calling verify-payment function...");
+
           // Direct verification call to Stripe API
           const { data: verificationResult, error: apiError } =
             await supabase.functions.invoke(
@@ -79,33 +81,16 @@ export default function Success() {
           });
 
           if (apiError) {
-            console.error("Stripe API verification error:", apiError);
+            console.error("Payment verification API error:", apiError);
             setVerificationStatus("error");
             setErrorMessage(
-              `Payment verification failed: ${apiError.message || "Unknown error"}`,
+              `Payment verification failed: ${apiError.message || "API error occurred"}`,
             );
             return;
           }
 
           if (verificationResult?.success) {
             console.log("Payment verified successfully!");
-
-            // Update user payment status in database
-            try {
-              const { error: updateError } = await supabase
-                .from("users")
-                .update({ has_completed_payment: true })
-                .eq("id", user.id);
-
-              if (updateError) {
-                console.error(
-                  "Error updating user payment status:",
-                  updateError,
-                );
-              }
-            } catch (dbError) {
-              console.error("Database update error:", dbError);
-            }
 
             setVerificationStatus("success");
 
@@ -146,14 +131,15 @@ export default function Success() {
             console.error("Payment verification failed:", verificationResult);
             setVerificationStatus("error");
             setErrorMessage(
-              verificationResult?.error || "Payment verification failed",
+              verificationResult?.error ||
+                "Payment verification failed - please contact support",
             );
           }
         } catch (error) {
           console.error("Payment verification error:", error);
           setVerificationStatus("error");
           setErrorMessage(
-            `Payment verification failed: ${error.message || "Unknown error"}`,
+            `Payment verification failed: ${error.message || "Network error occurred"}`,
           );
         }
       } catch (error) {

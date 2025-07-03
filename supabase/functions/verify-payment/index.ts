@@ -1,13 +1,14 @@
 import Stripe from "https://esm.sh/stripe@14.21.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// CORS headers - Comprehensive configuration for preflight requests
+// CORS headers - Enhanced configuration for better compatibility
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "*",
   "Access-Control-Allow-Methods": "*",
   "Access-Control-Max-Age": "86400",
 };
+
 // Database types
 type Json =
   | string
@@ -84,7 +85,7 @@ function logConfig(context: string): void {
 
 function createSupabaseClient() {
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_KEY");
+  const supabaseServiceKey = Deno.env.get("SERVICE_KEY");
 
   if (!supabaseUrl || !supabaseServiceKey) {
     throw new Error("Missing Supabase environment variables");
@@ -103,12 +104,19 @@ Deno.serve(async (req) => {
     });
   }
 
-  // Only allow POST requests
-  if (req.method !== "POST") {
-    return new Response(JSON.stringify({ error: "Method not allowed" }), {
-      status: 405,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+  // Allow both GET and POST requests for flexibility
+  if (req.method !== "POST" && req.method !== "GET") {
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: "Method not allowed",
+        message: "Only POST and GET requests are allowed",
+      }),
+      {
+        status: 405,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
+    );
   }
 
   // Log configuration for debugging
@@ -116,12 +124,23 @@ Deno.serve(async (req) => {
 
   let body;
   try {
-    body = await req.json();
+    if (req.method === "POST") {
+      body = await req.json();
+    } else if (req.method === "GET") {
+      // Handle GET request with URL parameters
+      const url = new URL(req.url);
+      body = {
+        sessionId: url.searchParams.get("sessionId"),
+        userId: url.searchParams.get("userId"),
+        action: url.searchParams.get("action"),
+        securityToken: url.searchParams.get("securityToken"),
+      };
+    }
   } catch (err) {
-    console.error("Error parsing request body:", err);
+    console.error("Error parsing request:", err);
     return new Response(
       JSON.stringify({
-        error: "Invalid request body",
+        error: "Invalid request",
         details: err.message,
       }),
       {
@@ -147,7 +166,9 @@ Deno.serve(async (req) => {
     console.error("Missing sessionId parameter:", { body, sessionId, userId });
     return new Response(
       JSON.stringify({
+        success: false,
         error: "Missing sessionId parameter",
+        message: "Session ID is required for payment verification",
         received: {
           sessionId,
           userId,
@@ -166,7 +187,9 @@ Deno.serve(async (req) => {
     console.error("Missing userId parameter:", { body, sessionId, userId });
     return new Response(
       JSON.stringify({
+        success: false,
         error: "Missing userId parameter",
+        message: "User ID is required for payment verification",
         received: {
           sessionId,
           userId,
@@ -198,7 +221,11 @@ Deno.serve(async (req) => {
   if (!stripeSecretKey) {
     console.error("Missing Stripe secret key in environment");
     return new Response(
-      JSON.stringify({ error: "Configuration error: Missing Stripe key" }),
+      JSON.stringify({
+        success: false,
+        error: "Configuration error: Missing Stripe key",
+        message: "Server configuration error. Please contact support.",
+      }),
       {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -211,47 +238,34 @@ Deno.serve(async (req) => {
   try {
     console.log("Verifying payment for session:", sessionId, "user:", userId);
 
-    // Retrieve the checkout session from Stripe with retry logic
+    // Retrieve the checkout session from Stripe
     let session;
-    let retryCount = 0;
-    const maxRetries = 3;
-
-    while (retryCount < maxRetries) {
-      try {
-        console.log(
-          `Attempting to retrieve Stripe session (attempt ${retryCount + 1})...`,
-        );
-        session = await stripe.checkout.sessions.retrieve(sessionId, {
-          expand: ["subscription", "customer"],
-        });
-        console.log("Successfully retrieved Stripe session");
-        break;
-      } catch (stripeError) {
-        retryCount++;
-        console.error(
-          `Stripe API error (attempt ${retryCount}):`,
-          stripeError.message,
-        );
-
-        if (retryCount >= maxRetries) {
-          throw new Error(
-            `Failed to retrieve session after ${maxRetries} attempts: ${stripeError.message}`,
-          );
-        }
-
-        // Wait before retry
-        await new Promise((resolve) => setTimeout(resolve, 1000 * retryCount));
-      }
+    try {
+      console.log("Retrieving Stripe checkout session...");
+      session = await stripe.checkout.sessions.retrieve(sessionId, {
+        expand: ["subscription", "customer"],
+      });
+      console.log("Successfully retrieved Stripe session:", {
+        id: session.id,
+        payment_status: session.payment_status,
+        status: session.status,
+      });
+    } catch (stripeError) {
+      console.error("Stripe API error:", stripeError.message);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "Failed to retrieve payment session",
+          message:
+            "Unable to verify payment session. Please try again or contact support.",
+          details: stripeError.message,
+        }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
     }
-
-    console.log("Retrieved Stripe session:", {
-      id: session.id,
-      payment_status: session.payment_status,
-      status: session.status,
-      customer: session.customer,
-      subscription: session.subscription,
-      metadata: session.metadata,
-    });
 
     // Check if payment was successful
     if (session.payment_status !== "paid" || session.status !== "complete") {
@@ -304,17 +318,22 @@ Deno.serve(async (req) => {
     try {
       const subscriptionData = {
         user_id: userId,
-        plan_id: session.metadata?.plan_id || "default",
+        plan_id: session.metadata?.plan_id || "starter",
         status: "active",
         stripe_checkout_session_id: session.id,
-        stripe_customer_id: session.customer,
+        stripe_customer_id:
+          typeof session.customer === "string"
+            ? session.customer
+            : session.customer?.id,
         stripe_subscription_id:
-          session.subscription?.id || session.subscription,
+          typeof session.subscription === "string"
+            ? session.subscription
+            : session.subscription?.id,
         payment_verified_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
 
-      console.log("Upserting subscription data:", subscriptionData);
+      console.log("Creating/updating subscription record...");
 
       const { error: upsertError } = await supabase
         .from("user_subscriptions")
@@ -324,6 +343,7 @@ Deno.serve(async (req) => {
 
       if (upsertError) {
         console.error("Error upserting subscription:", upsertError);
+        // Continue anyway - don't fail verification for DB errors
       } else {
         console.log("Successfully updated subscription record");
       }
@@ -339,12 +359,13 @@ Deno.serve(async (req) => {
 
       if (userUpdateError) {
         console.error("Error updating user payment status:", userUpdateError);
+        // Continue anyway - don't fail verification for DB errors
       } else {
         console.log("Successfully updated user payment status");
       }
     } catch (dbError) {
       console.error("Database operation error:", dbError);
-      // Don't fail the verification for database errors
+      // Don't fail the verification for database errors - payment was successful
     }
 
     // Payment verification successful
