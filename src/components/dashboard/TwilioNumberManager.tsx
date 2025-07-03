@@ -20,7 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
-import { Phone, Plus, Search, MapPin, Clock } from "lucide-react";
+import { Phone, Plus, Search, MapPin, Clock, AlertCircle } from "lucide-react";
 import { useAuth } from "../../../supabase/auth";
 import { supabase } from "../../../supabase/supabase";
 import { useToast } from "@/components/ui/use-toast";
@@ -304,6 +304,11 @@ export default function TwilioNumberManager() {
           description: `${data.number?.formatted_number || phoneNumber} is now ready to use with ${data.minutesAllocated} minutes allocated for your ${data.planId} plan.`,
         });
 
+        // Remove the purchased number from available numbers list
+        setAvailableNumbers((prev) =>
+          prev.filter((num) => num.phone_number !== phoneNumber),
+        );
+
         // Close dialog and refresh numbers
         setShowNumberDialog(false);
         await fetchUserNumbers();
@@ -351,12 +356,77 @@ export default function TwilioNumberManager() {
     });
   };
 
+  const [showReleaseDialog, setShowReleaseDialog] = useState(false);
+  const [numberToRelease, setNumberToRelease] = useState<TwilioNumber | null>(
+    null,
+  );
+  const [isReleasing, setIsReleasing] = useState(false);
+
   const handleNumberSettings = (numberId: string) => {
-    toast({
-      title: "Number Settings",
-      description:
-        "Number settings interface coming soon! You'll be able to configure forwarding, recording, and other advanced features.",
-    });
+    const number = userNumbers.find((n) => n.id === numberId);
+    if (number) {
+      setNumberToRelease(number);
+      setShowReleaseDialog(true);
+    }
+  };
+
+  const handleReleaseNumber = async () => {
+    if (!numberToRelease || !user) return;
+
+    setIsReleasing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke(
+        "supabase-functions-release-twilio-number",
+        {
+          body: {
+            numberId: numberToRelease.id,
+            phoneNumber: numberToRelease.phone_number,
+            userId: user.id,
+          },
+        },
+      );
+
+      if (error) {
+        console.error("Release error:", error);
+        toast({
+          title: "Release failed",
+          description:
+            error.message ||
+            "Failed to release phone number. Please try again.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (data?.success) {
+        toast({
+          title: "Number released successfully",
+          description: `${formatPhoneNumber(numberToRelease.phone_number)} has been released and is no longer active.`,
+        });
+
+        // Refresh the numbers list
+        await fetchUserNumbers();
+        setShowReleaseDialog(false);
+        setNumberToRelease(null);
+      } else {
+        toast({
+          title: "Release incomplete",
+          description:
+            "The number release may not have completed successfully. Please contact support if needed.",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error("Release exception:", error);
+      toast({
+        title: "Release failed",
+        description:
+          "An unexpected error occurred. Please try again or contact support.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsReleasing(false);
+    }
   };
 
   // Reset search state when dialog closes
@@ -667,8 +737,9 @@ export default function TwilioNumberManager() {
                     variant="outline"
                     size="sm"
                     onClick={() => handleNumberSettings(number.id)}
+                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
                   >
-                    Settings
+                    Release Number
                   </Button>
                 </div>
               </div>
@@ -676,6 +747,72 @@ export default function TwilioNumberManager() {
           </div>
         )}
       </CardContent>
+
+      {/* Release Number Dialog */}
+      <Dialog
+        open={showReleaseDialog}
+        onOpenChange={(open) => {
+          if (!open) {
+            setShowReleaseDialog(false);
+            setNumberToRelease(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertCircle className="h-5 w-5" />
+              Release Phone Number
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to release this phone number? This action
+              cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          {numberToRelease && (
+            <div className="space-y-4">
+              <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+                <div className="font-semibold text-red-800">
+                  {formatPhoneNumber(numberToRelease.phone_number)}
+                </div>
+                <div className="text-sm text-red-600 mt-1">
+                  {numberToRelease.minutes_used} /{" "}
+                  {numberToRelease.minutes_allocated} minutes used
+                </div>
+              </div>
+              <div className="text-sm text-gray-600">
+                <p className="mb-2">
+                  ⚠️ <strong>Warning:</strong>
+                </p>
+                <ul className="list-disc list-inside space-y-1 text-xs">
+                  <li>This number will be permanently released</li>
+                  <li>All call flows and settings will be deleted</li>
+                  <li>You may not be able to get this exact number back</li>
+                  <li>Any unused minutes will be forfeited</li>
+                </ul>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowReleaseDialog(false)}
+                  className="flex-1"
+                  disabled={isReleasing}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={handleReleaseNumber}
+                  disabled={isReleasing}
+                  className="flex-1"
+                >
+                  {isReleasing ? "Releasing..." : "Release Number"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

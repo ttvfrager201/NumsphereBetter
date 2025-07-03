@@ -188,6 +188,33 @@ export type Database = {
         }
         Relationships: []
       }
+      number_audit_log: {
+        Row: {
+          action: string
+          created_at: string | null
+          details: Json | null
+          id: string
+          phone_number: string
+          user_id: string | null
+        }
+        Insert: {
+          action: string
+          created_at?: string | null
+          details?: Json | null
+          id?: string
+          phone_number: string
+          user_id?: string | null
+        }
+        Update: {
+          action?: string
+          created_at?: string | null
+          details?: Json | null
+          id?: string
+          phone_number?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       payment_security_log: {
         Row: {
           action_taken: string | null

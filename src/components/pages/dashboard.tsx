@@ -76,10 +76,14 @@ const useTheme = () => {
   return { theme, toggleTheme };
 };
 
-// Optimized Stripe Customer Portal Component
+// Optimized Stripe Customer Portal Component with OTP Security
 const BillingManagement = () => {
-  const { user } = useAuth();
+  const { user, resendOtp, verifyOtp } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [showOtpDialog, setShowOtpDialog] = useState(false);
+  const [otpCode, setOtpCode] = useState("");
+  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
+  const [pendingPortalAccess, setPendingPortalAccess] = useState(false);
   const { toast } = useToast();
 
   const handleOpenPortal = async (e: React.MouseEvent) => {
@@ -88,10 +92,39 @@ const BillingManagement = () => {
 
     if (!user || loading) return;
 
+    // First, send OTP for security
     setLoading(true);
     try {
-      console.log("Creating customer portal for user:", user.id);
+      await resendOtp(user.email!, "signin");
+      setShowOtpDialog(true);
+      setPendingPortalAccess(true);
+      toast({
+        title: "Security Verification",
+        description:
+          "We've sent a verification code to your email for secure billing portal access.",
+      });
+    } catch (error: any) {
+      console.error("Error sending OTP:", error);
+      toast({
+        title: "Error",
+        description:
+          error.message ||
+          "Failed to send verification code. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  const handleVerifyOtp = async () => {
+    if (!user || !otpCode.trim()) return;
+
+    setIsVerifyingOtp(true);
+    try {
+      await verifyOtp(user.email!, otpCode.trim(), "signin", false);
+
+      // OTP verified, now access billing portal
       const { data, error } = await supabase.functions.invoke(
         "supabase-functions-create-customer-portal",
         {
@@ -104,24 +137,44 @@ const BillingManagement = () => {
         throw error;
       }
 
-      console.log("Customer portal response:", data);
-
       if (data?.customerPortalUrl) {
+        setShowOtpDialog(false);
+        setOtpCode("");
+        setPendingPortalAccess(false);
         // Always open in same tab to prevent refresh issues
         window.location.href = data.customerPortalUrl;
       } else {
         throw new Error(data?.message || "No customer portal URL available");
       }
-    } catch (error) {
-      console.error("Error creating customer portal:", error);
+    } catch (error: any) {
+      console.error("Error verifying OTP or accessing portal:", error);
       toast({
         title: "Error",
         description:
-          error.message || "Failed to open billing portal. Please try again.",
+          error.message ||
+          "Failed to verify code or access billing portal. Please try again.",
         variant: "destructive",
       });
     } finally {
-      setLoading(false);
+      setIsVerifyingOtp(false);
+    }
+  };
+
+  const handleResendOtp = async () => {
+    if (!user) return;
+
+    try {
+      await resendOtp(user.email!, "signin");
+      toast({
+        title: "Code Resent",
+        description: "A new verification code has been sent to your email.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to resend verification code.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -180,8 +233,77 @@ const BillingManagement = () => {
                 type="button"
               >
                 <CreditCard className="h-5 w-5 mr-2" />
-                {loading ? "Loading..." : "Open Billing Portal"}
+                {loading ? "Sending Security Code..." : "Open Billing Portal"}
               </Button>
+
+              {/* OTP Verification Dialog */}
+              <Dialog
+                open={showOtpDialog}
+                onOpenChange={(open) => {
+                  if (!open) {
+                    setShowOtpDialog(false);
+                    setOtpCode("");
+                    setPendingPortalAccess(false);
+                  }
+                }}
+              >
+                <DialogContent className="max-w-md">
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                      <Lock className="h-5 w-5 text-blue-600" />
+                      Security Verification
+                    </DialogTitle>
+                    <DialogDescription>
+                      Enter the verification code sent to your email to access
+                      the billing portal securely.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="otp-code">Verification Code</Label>
+                      <Input
+                        id="otp-code"
+                        type="text"
+                        placeholder="Enter 6-digit code"
+                        value={otpCode}
+                        onChange={(e) =>
+                          setOtpCode(
+                            e.target.value.replace(/\D/g, "").slice(0, 6),
+                          )
+                        }
+                        maxLength={6}
+                        className="text-center text-lg tracking-widest"
+                        onKeyPress={(e) => {
+                          if (e.key === "Enter" && otpCode.length === 6) {
+                            handleVerifyOtp();
+                          }
+                        }}
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={handleVerifyOtp}
+                        disabled={isVerifyingOtp || otpCode.length !== 6}
+                        className="flex-1 bg-blue-600 hover:bg-blue-700"
+                      >
+                        {isVerifyingOtp
+                          ? "Verifying..."
+                          : "Verify & Access Portal"}
+                      </Button>
+                    </div>
+                    <div className="text-center">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleResendOtp}
+                        className="text-blue-600 hover:text-blue-700"
+                      >
+                        Resend Code
+                      </Button>
+                    </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
 
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 You'll be redirected to Stripe's secure billing portal
@@ -288,33 +410,45 @@ const Home = () => {
       });
     }
 
-    // Prevent tab refresh on visibility change - this was causing the refresh bug
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        console.log("Tab became visible - preventing any automatic refreshes");
-        // Explicitly prevent any automatic refreshes or payment status checks
-        // that might be triggered by tab visibility changes
+    // Completely prevent any refresh behavior on tab visibility changes
+    const handleVisibilityChange = (e: Event) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // Do nothing - prevent any refresh logic
+    };
+
+    const handleFocus = (e: Event) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // Do nothing - prevent any refresh logic
+    };
+
+    const handleBlur = (e: Event) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // Do nothing - prevent any refresh logic
+    };
+
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      // Only prevent if user is actually trying to leave the page
+      if (e.type === "beforeunload") {
+        return;
       }
     };
 
-    // Prevent page refresh on focus/blur events
-    const handleFocus = () => {
-      console.log("Window focused - preventing refresh");
-    };
-
-    const handleBlur = () => {
-      console.log("Window blurred - preventing refresh");
-    };
-
-    // Add event listeners to prevent refresh on tab changes
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    window.addEventListener("focus", handleFocus);
-    window.addEventListener("blur", handleBlur);
+    // Add event listeners with passive: false to ensure we can prevent default
+    document.addEventListener("visibilitychange", handleVisibilityChange, {
+      passive: false,
+    });
+    window.addEventListener("focus", handleFocus, { passive: false });
+    window.addEventListener("blur", handleBlur, { passive: false });
+    window.addEventListener("beforeunload", handleBeforeUnload);
 
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("focus", handleFocus);
       window.removeEventListener("blur", handleBlur);
+      window.removeEventListener("beforeunload", handleBeforeUnload);
     };
   }, [toast]);
 
