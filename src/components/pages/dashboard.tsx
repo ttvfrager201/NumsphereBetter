@@ -76,79 +76,74 @@ const useTheme = () => {
   return { theme, toggleTheme };
 };
 
-// Payment History Component
-const PaymentHistory = () => {
+// Optimized Stripe Customer Portal Component
+const BillingManagement = () => {
   const { user } = useAuth();
-  const [payments, setPayments] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
   const [customerPortalUrl, setCustomerPortalUrl] = useState<string | null>(
     null,
   );
+  const [loading, setLoading] = useState(true);
+  const { toast } = useToast();
 
   useEffect(() => {
-    const fetchPaymentHistory = async () => {
+    const fetchCustomerPortal = async () => {
       if (!user) return;
 
       try {
-        const { data } = await supabase.functions.invoke(
+        const { data, error } = await supabase.functions.invoke(
           "supabase-functions-get-payment-history",
           {
             body: { userId: user.id },
           },
         );
 
-        if (data) {
-          setPayments(data.payments || []);
+        if (error) {
+          console.error("Error from edge function:", error);
+          throw error;
+        }
+
+        if (data?.customerPortalUrl) {
           setCustomerPortalUrl(data.customerPortalUrl);
         }
       } catch (error) {
-        console.error("Payment history error:", error);
+        console.error("Error fetching customer portal:", error);
+        toast({
+          title: "Error",
+          description: "Failed to load billing management. Please try again.",
+          variant: "destructive",
+        });
       } finally {
         setLoading(false);
       }
     };
 
-    fetchPaymentHistory();
-  }, [user]);
+    fetchCustomerPortal();
+  }, [user, toast]);
 
-  const formatAmount = (amount: number, currency: string) => {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: currency.toUpperCase(),
-    }).format(amount / 100);
-  };
+  const handleOpenPortal = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  };
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case "succeeded":
-        return <CheckCircle className="h-4 w-4 text-green-500" />;
-      case "failed":
-        return <XCircle className="h-4 w-4 text-red-500" />;
-      case "pending":
-        return <AlertCircle className="h-4 w-4 text-yellow-500" />;
-      default:
-        return <AlertCircle className="h-4 w-4 text-gray-500" />;
-    }
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "succeeded":
-        return "text-green-600 bg-green-50";
-      case "failed":
-        return "text-red-600 bg-red-50";
-      case "pending":
-        return "text-yellow-600 bg-yellow-50";
-      default:
-        return "text-gray-600 bg-gray-50";
+    if (customerPortalUrl) {
+      // Open in new tab/window
+      const newWindow = window.open(
+        customerPortalUrl,
+        "_blank",
+        "noopener,noreferrer",
+      );
+      if (newWindow) {
+        newWindow.focus();
+      } else {
+        // Fallback if popup blocked
+        window.location.href = customerPortalUrl;
+      }
+    } else {
+      toast({
+        title: "Error",
+        description:
+          "Billing portal is not available. Please try again or contact support.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -157,9 +152,9 @@ const PaymentHistory = () => {
       <div className="space-y-6">
         <div className="text-center py-8">
           <h2 className="text-2xl font-bold text-gray-900 mb-4">
-            Payment History
+            Billing Management
           </h2>
-          <p className="text-gray-600">Loading payment history...</p>
+          <p className="text-gray-600">Loading billing portal...</p>
         </div>
       </div>
     );
@@ -167,94 +162,107 @@ const PaymentHistory = () => {
 
   return (
     <div className="space-y-6">
-      <div className="text-center py-4">
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">
-          Payment History
+      <div className="text-center py-8">
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-4">
+          Billing Management
         </h2>
-        <p className="text-gray-600">
-          View all your payment transactions and billing history.
+        <p className="text-gray-600 dark:text-gray-300 mb-8">
+          Manage your subscription, payment methods, and download invoices
+          through our secure billing portal.
         </p>
       </div>
 
-      <div className="space-y-6">
-        {customerPortalUrl && (
-          <Card className="bg-blue-50 border-blue-200">
+      <div className="max-w-2xl mx-auto">
+        <Card className="bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 border-blue-200 dark:border-blue-800">
+          <CardContent className="pt-8 pb-8">
+            <div className="text-center space-y-6">
+              <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full mb-4">
+                <CreditCard className="h-8 w-8 text-white" />
+              </div>
+
+              <div>
+                <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">
+                  Stripe Customer Portal
+                </h3>
+                <p className="text-gray-600 dark:text-gray-300 mb-6">
+                  Access your complete billing dashboard to:
+                </p>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-600 dark:text-gray-300 mb-8">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle className="h-4 w-4 text-green-500" />
+                    Update payment methods
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <CheckCircle className="h-4 w-4 text-green-500" />
+                    Download invoices
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <CheckCircle className="h-4 w-4 text-green-500" />
+                    View billing history
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <CheckCircle className="h-4 w-4 text-green-500" />
+                    Manage subscriptions
+                  </div>
+                </div>
+              </div>
+
+              <Button
+                onClick={handleOpenPortal}
+                disabled={!customerPortalUrl || loading}
+                className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white px-8 py-3 rounded-xl font-semibold transition-all duration-200 transform hover:scale-[1.02] shadow-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                type="button"
+              >
+                <CreditCard className="h-5 w-5 mr-2" />
+                {loading ? "Loading..." : "Open Billing Portal"}
+              </Button>
+
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                You'll be redirected to Stripe's secure billing portal
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Additional billing info */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+          <Card className="bg-white dark:bg-gray-800">
             <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 bg-green-100 dark:bg-green-900/20 rounded-lg flex items-center justify-center">
+                  <CheckCircle className="h-5 w-5 text-green-600" />
+                </div>
                 <div>
-                  <h3 className="font-medium text-blue-900">
-                    Manage Your Subscription
-                  </h3>
-                  <p className="text-sm text-blue-700 mt-1">
-                    Update payment methods, download invoices, and manage
-                    billing
+                  <h4 className="font-medium text-gray-900 dark:text-gray-100">
+                    Secure & Safe
+                  </h4>
+                  <p className="text-sm text-gray-600 dark:text-gray-300">
+                    Powered by Stripe
                   </p>
                 </div>
-                <Button
-                  onClick={() => window.open(customerPortalUrl, "_blank")}
-                  className="bg-blue-600 hover:bg-blue-700 text-white"
-                >
-                  <CreditCard className="h-4 w-4 mr-2" />
-                  Manage Billing
-                </Button>
               </div>
             </CardContent>
           </Card>
-        )}
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Transaction History</CardTitle>
-            <CardDescription>
-              All payments and billing transactions for your account
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {payments.length === 0 ? (
-              <div className="text-center py-8">
-                <CreditCard className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-500 mb-2">No payment history found.</p>
-                <p className="text-sm text-gray-400">
-                  Your payment transactions will appear here once you make your
-                  first payment.
-                </p>
+          <Card className="bg-white dark:bg-gray-800">
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 bg-blue-100 dark:bg-blue-900/20 rounded-lg flex items-center justify-center">
+                  <CreditCard className="h-5 w-5 text-blue-600" />
+                </div>
+                <div>
+                  <h4 className="font-medium text-gray-900 dark:text-gray-100">
+                    Easy Management
+                  </h4>
+                  <p className="text-sm text-gray-600 dark:text-gray-300">
+                    All-in-one portal
+                  </p>
+                </div>
               </div>
-            ) : (
-              <div className="space-y-4">
-                {payments.map((payment) => (
-                  <div
-                    key={payment.id}
-                    className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-                  >
-                    <div className="flex items-center gap-3">
-                      {getStatusIcon(payment.status)}
-                      <div>
-                        <p className="font-medium text-gray-900">
-                          {payment.description || "Payment"}
-                        </p>
-                        <p className="text-sm text-gray-500">
-                          {formatDate(payment.created)} • ID:{" "}
-                          {payment.id.slice(-8)}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-semibold text-gray-900">
-                        {formatAmount(payment.amount, payment.currency)}
-                      </p>
-                      <span
-                        className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ${getStatusColor(payment.status)}`}
-                      >
-                        {payment.status.charAt(0).toUpperCase() +
-                          payment.status.slice(1)}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   );
@@ -279,9 +287,11 @@ const Home = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [subscriptionData, setSubscriptionData] = useState<any>(null);
-  const [stripeData, setStripeData] = useState<any>(null);
+  const [planDetails, setPlanDetails] = useState<{
+    plan_id: string;
+    amount: number;
+  } | null>(null);
   const [loadingStripeData, setLoadingStripeData] = useState(true);
-  const [stripeSubscription, setStripeSubscription] = useState<any>(null);
   const { theme, toggleTheme } = useTheme();
 
   const [formData, setFormData] = useState({
@@ -297,7 +307,24 @@ const Home = () => {
   const { user, signOut, checkPaymentStatus } = useAuth();
   const { toast } = useToast();
 
-  // Fetch user profile and subscription data
+  // Prevent subscription checks when returning to tab
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        console.log("Tab became visible - not checking subscription status");
+        // Don't check payment status when tab becomes visible
+        // Only check on actual sign-in/sign-out events
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
+  // Fetch user profile and subscription data only once on mount
   useEffect(() => {
     const fetchUserData = async () => {
       if (!user) return;
@@ -326,6 +353,19 @@ const Home = () => {
 
         if (subData) {
           setSubscriptionData(subData);
+
+          // Set plan details with pricing
+          const planPricing = {
+            starter: 9,
+            business: 29,
+            enterprise: 99,
+          };
+
+          setPlanDetails({
+            plan_id: subData.plan_id,
+            amount:
+              planPricing[subData.plan_id as keyof typeof planPricing] || 0,
+          });
         }
       } catch (error) {
         console.error("Error fetching user data:", error);
@@ -334,8 +374,9 @@ const Home = () => {
       }
     };
 
+    // Only fetch once when component mounts
     fetchUserData();
-  }, [user]);
+  }, [user?.id]); // Only depend on user.id to prevent unnecessary refetches
 
   // Function to trigger loading state for demonstration
   const handleRefresh = () => {
@@ -451,12 +492,8 @@ const Home = () => {
 
       if (error) throw error;
 
-      // Force payment status check after password change to ensure user stays logged in
-      console.log("Password updated, refreshing payment status...");
-      setTimeout(async () => {
-        await checkPaymentStatus();
-        console.log("Payment status refreshed after password change");
-      }, 500);
+      // Password updated successfully - no need to check payment status
+      console.log("Password updated successfully");
 
       toast({
         title: "Success",
@@ -489,10 +526,8 @@ const Home = () => {
 
       if (error) throw error;
 
-      // Refresh payment status after cancellation to reflect webhook changes
-      setTimeout(async () => {
-        await checkPaymentStatus();
-      }, 2000);
+      // Subscription cancelled - webhook will handle status updates
+      console.log("Subscription cancelled successfully");
 
       toast({
         title: "Success",
@@ -590,11 +625,18 @@ const Home = () => {
                             : "Inactive"}
                         </span>
                       </div>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                        {subscriptionData?.plan_id
-                          ? `${subscriptionData.plan_id.charAt(0).toUpperCase() + subscriptionData.plan_id.slice(1)} Plan`
-                          : "No Plan"}
-                      </p>
+                      <div className="mt-1 space-y-1">
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                          {subscriptionData?.plan_id
+                            ? `${subscriptionData.plan_id.charAt(0).toUpperCase() + subscriptionData.plan_id.slice(1)} Plan`
+                            : "No Plan"}
+                        </p>
+                        {planDetails && (
+                          <p className="text-sm font-medium text-blue-600 dark:text-blue-400">
+                            ${planDetails.amount}/month
+                          </p>
+                        )}
+                      </div>
                     </CardContent>
                   </Card>
 
@@ -675,12 +717,12 @@ const Home = () => {
                       <span>Setup Call Flows</span>
                     </Button>
                     <Button
-                      onClick={() => setActiveTab("Payment History")}
+                      onClick={() => setActiveTab("Billing")}
                       variant="outline"
                       className="h-16 rounded-xl flex flex-col items-center justify-center gap-2"
                     >
                       <span className="text-lg">💳</span>
-                      <span>View Payments</span>
+                      <span>Manage Billing</span>
                     </Button>
                   </div>
                 </div>
@@ -707,7 +749,8 @@ const Home = () => {
               </div>
             )}
 
-            {activeTab === "Payment History" && <PaymentHistory />}
+            {activeTab === "Billing" && <BillingManagement />}
+            {activeTab === "Payment History" && <BillingManagement />}
           </div>
         </main>
       </div>

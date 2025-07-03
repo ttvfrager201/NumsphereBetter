@@ -1,495 +1,294 @@
-import { useState, useEffect } from "react";
-import { useAuth } from "../../../../supabase/auth";
+import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Link, useNavigate } from "react-router-dom";
-import { LoadingSpinner, LoadingScreen } from "@/components/ui/loading-spinner";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
 import {
-  Mail,
-  Lock,
-  Eye,
-  EyeOff,
-  User,
-  Phone,
-  Award,
-  Globe,
-  Headphones,
+  Home,
+  LayoutDashboard,
+  Calendar,
+  Users,
+  Settings,
+  HelpCircle,
+  FolderKanban,
+  Menu,
+  X,
+  CreditCard,
+  Clock,
+  Receipt,
 } from "lucide-react";
-import { useToast } from "@/components/ui/use-toast";
-import OtpVerification from "./OtpVerification";
+import { useAuth } from "../../../../supabase/auth";
+import { supabase } from "../../../../supabase/supabase";
 
-const testimonials = [
-  {
-    quote:
-      "NumSphere revolutionized our communication. Setup was instant and the features are enterprise-grade.",
-    author: "Alex Martinez",
-    role: "CTO, InnovateNow",
-    avatar: "Alex",
-  },
-  {
-    quote:
-      "The best VoIP solution we've used. Customer support is exceptional and the platform is rock-solid.",
-    author: "Jennifer Lee",
-    role: "VP Operations, ScaleUp",
-    avatar: "Jennifer",
-  },
-  {
-    quote:
-      "We switched to NumSphere and immediately saw a 50% reduction in communication costs.",
-    author: "Thomas Brown",
-    role: "Finance Director, GrowthTech",
-    avatar: "Thomas",
-  },
-  {
-    quote:
-      "The call quality is crystal clear and the analytics help us make data-driven decisions.",
-    author: "Maria Garcia",
-    role: "Customer Success Manager, TechFlow",
-    avatar: "Maria",
-  },
-  {
-    quote:
-      "NumSphere's flexibility allowed us to create custom workflows that fit our unique business needs.",
-    author: "James Wilson",
-    role: "Operations Director, FlexiCorp",
-    avatar: "James",
-  },
-  {
-    quote:
-      "The mobile app keeps our team connected anywhere. It's like having our office phone system in our pocket.",
-    author: "Rachel Davis",
-    role: "Remote Team Lead, DistributedCo",
-    avatar: "Rachel",
-  },
+interface NavItem {
+  icon: React.ReactNode;
+  label: string;
+  href?: string;
+  isActive?: boolean;
+}
+
+interface SidebarProps {
+  items?: NavItem[];
+  activeItem?: string;
+  onItemClick?: (label: string) => void;
+  isCollapsed?: boolean;
+  onToggleCollapse?: () => void;
+}
+
+interface SubscriptionInfo {
+  status: string;
+  plan_id: string;
+  current_period_end: string;
+  usage_percentage: number;
+  credits_used: number;
+  credits_total: number;
+}
+
+const defaultNavItems: NavItem[] = [
+  { icon: <Home size={20} />, label: "Home", isActive: true },
+  { icon: <LayoutDashboard size={20} />, label: "Select Number" },
+  { icon: <FolderKanban size={20} />, label: "Call Flows" },
+  { icon: <Receipt size={20} />, label: "Billing" },
 ];
 
-export default function SignUpForm() {
-  const [fullName, setFullName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [error, setError] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [showOtpVerification, setShowOtpVerification] = useState(false);
-  const [currentTestimonial, setCurrentTestimonial] = useState(0);
-  const [isAnimating, setIsAnimating] = useState(false);
-  const [isTransitioning, setIsTransitioning] = useState(false);
-  const { signUp, signInWithFacebook } = useAuth();
-  const { toast } = useToast();
-  const navigate = useNavigate();
+const defaultBottomItems: NavItem[] = [
+  { icon: <Settings size={20} />, label: "Settings" },
+  { icon: <HelpCircle size={20} />, label: "Help" },
+];
+
+const Sidebar = ({
+  items = defaultNavItems,
+  activeItem = "Home",
+  onItemClick = () => {},
+  isCollapsed = false,
+  onToggleCollapse = () => {},
+}: SidebarProps) => {
+  const { user } = useAuth();
+  const [subscriptionInfo, setSubscriptionInfo] =
+    useState<SubscriptionInfo | null>(null);
+  const [userProfile, setUserProfile] = useState<{
+    full_name: string | null;
+  } | null>(null);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setIsAnimating(true);
-      setTimeout(() => {
-        setCurrentTestimonial((prev) => (prev + 1) % testimonials.length);
-        setIsAnimating(false);
-      }, 300);
-    }, 5000);
+    const fetchSubscriptionInfo = async () => {
+      if (!user) return;
 
-    return () => clearInterval(interval);
-  }, []);
+      try {
+        // Fetch user profile
+        const { data: userData } = await supabase
+          .from("users")
+          .select("full_name")
+          .eq("id", user.id)
+          .single();
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
-    setError("");
+        setUserProfile(userData);
 
-    if (password !== confirmPassword) {
-      setError("Passwords do not match");
-      setIsLoading(false);
-      return;
-    }
+        // Fetch subscription info
+        const { data: subData, error: subError } = await supabase
+          .from("user_subscriptions")
+          .select("status, plan_id, created_at")
+          .eq("user_id", user.id)
+          .eq("status", "active")
+          .single();
 
-    if (password.length < 6) {
-      setError("Password must be at least 6 characters long");
-      setIsLoading(false);
-      return;
-    }
+        if (subError && subError.code !== "PGRST116") {
+          console.error("Error fetching subscription:", subError);
+        }
 
-    try {
-      await signUp(email, password, fullName);
-      setIsTransitioning(true);
-      setTimeout(() => {
-        setShowOtpVerification(true);
-        setIsTransitioning(false);
-        toast({
-          title: "Account created!",
-          description: "Please check your email for the verification code.",
-        });
-      }, 800);
-    } catch (error: any) {
-      let errorMessage = error.message || "Failed to create account";
-      let isRateLimit = false;
+        if (subData) {
+          // Mock usage data - in real app, this would come from actual usage tracking
+          const mockUsage = {
+            credits_used: Math.floor(Math.random() * 800) + 100,
+            credits_total: 1000,
+          };
 
-      if (error.message?.includes("rate") || error.message?.includes("limit")) {
-        errorMessage =
-          "Too many signup attempts. Please wait 5-10 minutes before trying again.";
-        isRateLimit = true;
-      } else if (error.message?.includes("User already registered")) {
-        errorMessage =
-          "An account with this email already exists. Please sign in instead.";
+          setSubscriptionInfo({
+            ...subData,
+            usage_percentage:
+              (mockUsage.credits_used / mockUsage.credits_total) * 100,
+            ...mockUsage,
+          });
+        }
+      } catch (error) {
+        console.error("Error fetching subscription info:", error);
       }
+    };
 
-      setError(errorMessage);
-      toast({
-        title: isRateLimit ? "Rate limit exceeded" : "Sign up failed",
-        description: errorMessage,
-        variant: "destructive",
-        duration: isRateLimit ? 8000 : 5000,
-      });
-    } finally {
-      setIsLoading(false);
-    }
+    fetchSubscriptionInfo();
+  }, [user]);
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
   };
 
-  const handleFacebookSignIn = async () => {
-    try {
-      await signInWithFacebook();
-    } catch (error: any) {
-      toast({
-        title: "Sign up failed",
-        description:
-          error.message || "Failed to sign up with Facebook. Please try again.",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleBackToSignUp = () => {
-    setShowOtpVerification(false);
-  };
-
-  if (isTransitioning) {
-    return <LoadingScreen text="Creating your account..." fullScreen />;
-  }
-
-  if (showOtpVerification) {
-    return (
-      <OtpVerification
-        email={email}
-        type="signup"
-        onBack={handleBackToSignUp}
-      />
-    );
-  }
+  const userName =
+    userProfile?.full_name ||
+    user?.user_metadata?.full_name ||
+    user?.email?.split("@")[0] ||
+    "User";
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 via-white to-blue-50 flex">
-      {/* Left side - Testimonials */}
-      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-green-600 to-blue-700 p-12 flex-col justify-center relative overflow-hidden">
-        <div className="absolute inset-0 bg-black/10" />
-        {/* Floating SVG Elements */}
-        <div className="absolute inset-0 overflow-hidden">
-          <svg
-            className="absolute top-16 right-12 w-24 h-24 text-white/10"
-            fill="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-          </svg>
-          <svg
-            className="absolute bottom-20 right-8 w-16 h-16 text-white/15"
-            fill="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          <svg
-            className="absolute top-1/3 left-8 w-14 h-14 text-white/20"
-            fill="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path d="M13 10V3L4 14h7v7l9-11h-7z" />
-          </svg>
-        </div>
-        <div className="relative z-10">
-          <div className="mb-8">
-            <div className="flex items-center mb-4">
-              <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center mr-4">
-                <Phone className="h-6 w-6 text-white" />
-              </div>
-              <h1 className="text-4xl font-bold text-white">NumSphere</h1>
+    <div
+      className={`${isCollapsed ? "w-16" : "w-[320px]"} h-full bg-white/80 backdrop-blur-md border-r border-gray-200 flex flex-col transition-all duration-300`}
+    >
+      {/* Header with hamburger */}
+      <div className="p-4 border-b border-gray-200">
+        <div className="flex items-center justify-between">
+          {!isCollapsed && (
+            <div>
+              <h2 className="text-xl font-semibold text-gray-900">NumSphere</h2>
+              <p className="text-sm text-gray-500">Manage your phone numbers</p>
             </div>
-            <p className="text-xl text-green-100">
-              Join Thousands of Businesses
-            </p>
-            <div className="flex items-center mt-4 space-x-6">
-              <div className="flex items-center text-white/80">
-                <Award className="h-5 w-5 mr-2" />
-                <span className="text-sm">Award Winning</span>
-              </div>
-              <div className="flex items-center text-white/80">
-                <Globe className="h-5 w-5 mr-2" />
-                <span className="text-sm">Global Coverage</span>
-              </div>
-              <div className="flex items-center text-white/80">
-                <Headphones className="h-5 w-5 mr-2" />
-                <span className="text-sm">24/7 Support</span>
-              </div>
-            </div>
-          </div>
-
-          <div
-            className={`transition-all duration-300 transform ${
-              isAnimating
-                ? "opacity-0 translate-y-4"
-                : "opacity-100 translate-y-0"
-            }`}
+          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onToggleCollapse}
+            className="h-8 w-8 rounded-lg hover:bg-gray-100"
           >
-            <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-8 border border-white/20">
-              <div className="flex items-center mb-4">
-                {[...Array(5)].map((_, i) => (
-                  <svg
-                    key={i}
-                    className="w-5 h-5 text-yellow-400"
-                    fill="currentColor"
-                    viewBox="0 0 20 20"
-                  >
-                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                  </svg>
-                ))}
-              </div>
-              <blockquote className="text-white text-lg mb-6 leading-relaxed">
-                &quot;{testimonials[currentTestimonial].quote}&quot;
-              </blockquote>
-              <div className="flex items-center">
-                <img
-                  className="w-12 h-12 rounded-full mr-4"
-                  src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${testimonials[currentTestimonial].avatar}`}
-                  alt={testimonials[currentTestimonial].author}
-                />
-                <div>
-                  <div className="font-semibold text-white">
-                    {testimonials[currentTestimonial].author}
-                  </div>
-                  <div className="text-green-200 text-sm">
-                    {testimonials[currentTestimonial].role}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex justify-center mt-8 space-x-2">
-            {testimonials.map((_, index) => (
-              <button
-                key={index}
-                onClick={() => setCurrentTestimonial(index)}
-                className={`w-2 h-2 rounded-full transition-all duration-200 ${
-                  index === currentTestimonial ? "bg-white" : "bg-white/40"
-                }`}
-              />
-            ))}
-          </div>
+            {isCollapsed ? <Menu size={18} /> : <X size={18} />}
+          </Button>
         </div>
       </div>
 
-      {/* Right side - Sign Up Form */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-8">
-        <div className="bg-white rounded-3xl shadow-2xl border border-gray-100 p-8 w-full max-w-md">
-          <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-green-500 to-blue-600 rounded-2xl mb-4">
-              <Phone className="h-8 w-8 text-white" />
-            </div>
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">
-              Join NumSphere
-            </h2>
-            <p className="text-gray-600">Create your business VoIP account</p>
-          </div>
-
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="space-y-2">
-              <Label
-                htmlFor="fullName"
-                className="text-sm font-semibold text-gray-700"
-              >
-                Full Name
-              </Label>
-              <div className="relative">
-                <User className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                <Input
-                  id="fullName"
-                  type="text"
-                  placeholder="Enter your full name"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  required
-                  disabled={isLoading}
-                  className="h-12 pl-10 rounded-xl border-gray-200 focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label
-                htmlFor="email"
-                className="text-sm font-semibold text-gray-700"
-              >
-                Email Address
-              </Label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="Enter your email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  disabled={isLoading}
-                  className="h-12 pl-10 rounded-xl border-gray-200 focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label
-                htmlFor="password"
-                className="text-sm font-semibold text-gray-700"
-              >
-                Password
-              </Label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                <Input
-                  id="password"
-                  type={showPassword ? "text" : "password"}
-                  placeholder="Create a password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  disabled={isLoading}
-                  className="h-12 pl-10 pr-10 rounded-xl border-gray-200 focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
-                >
-                  {showPassword ? (
-                    <EyeOff className="h-5 w-5" />
-                  ) : (
-                    <Eye className="h-5 w-5" />
-                  )}
-                </button>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label
-                htmlFor="confirmPassword"
-                className="text-sm font-semibold text-gray-700"
-              >
-                Confirm Password
-              </Label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                <Input
-                  id="confirmPassword"
-                  type={showConfirmPassword ? "text" : "password"}
-                  placeholder="Confirm your password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  required
-                  disabled={isLoading}
-                  className="h-12 pl-10 pr-10 rounded-xl border-gray-200 focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-200"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
-                >
-                  {showConfirmPassword ? (
-                    <EyeOff className="h-5 w-5" />
-                  ) : (
-                    <Eye className="h-5 w-5" />
-                  )}
-                </button>
-              </div>
-            </div>
-
-            {error && (
-              <div className="bg-red-50 border border-red-200 rounded-xl p-3">
-                <p className="text-sm text-red-600 font-medium">{error}</p>
-              </div>
-            )}
-
-            <Button
-              type="submit"
-              disabled={isLoading}
-              className="w-full h-12 rounded-xl bg-gradient-to-r from-green-600 to-blue-600 text-white hover:from-green-700 hover:to-blue-700 text-sm font-semibold shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-[1.02]"
-            >
-              {isLoading ? (
-                <div className="flex items-center justify-center">
-                  <LoadingSpinner size="sm" className="mr-2" />
-                  Creating account...
+      <ScrollArea className="flex-1 px-4">
+        {/* Subscription Info - Show when not collapsed and subscription info exists */}
+        {!isCollapsed && subscriptionInfo && (
+          <div className="py-4">
+            <div className="bg-gradient-to-br from-blue-50 to-purple-50 rounded-xl p-4 mb-4 border border-blue-100">
+              <div className="mb-3">
+                <h3 className="text-sm font-medium text-gray-900 mb-1">
+                  Hello, {userName}! 👋
+                </h3>
+                <div className="flex items-center gap-2">
+                  <Badge
+                    variant={
+                      subscriptionInfo.status === "active"
+                        ? "default"
+                        : "secondary"
+                    }
+                    className="text-xs"
+                  >
+                    {subscriptionInfo.status === "active"
+                      ? "✓ Active"
+                      : subscriptionInfo.status}
+                  </Badge>
+                  <span className="text-xs text-gray-600 capitalize">
+                    {subscriptionInfo.plan_id} Plan
+                  </span>
                 </div>
-              ) : (
-                "Create Account"
-              )}
-            </Button>
-
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-200" />
               </div>
-              <div className="relative flex justify-center text-sm">
-                <span className="px-4 bg-white text-gray-500">
-                  Or continue with
-                </span>
-              </div>
-            </div>
 
-            <Button
-              type="button"
-              onClick={handleFacebookSignIn}
-              className="w-full h-12 rounded-xl bg-blue-600 text-white hover:bg-blue-700 text-sm font-semibold transition-all duration-200"
-            >
-              <svg
-                className="h-5 w-5 mr-2"
-                fill="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
-              </svg>
-              Continue with Facebook
-            </Button>
+              <div className="space-y-3">
+                <div>
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-xs font-medium text-gray-700">
+                      Usage
+                    </span>
+                    <span className="text-xs text-gray-600">
+                      {subscriptionInfo.credits_used} /{" "}
+                      {subscriptionInfo.credits_total} credits
+                    </span>
+                  </div>
+                  <Progress
+                    value={subscriptionInfo.usage_percentage}
+                    className="h-2"
+                  />
+                  <div className="text-xs text-gray-500 mt-1">
+                    {Math.round(subscriptionInfo.usage_percentage)}% used
+                  </div>
+                </div>
 
-            <div className="text-center">
-              <p className="text-sm text-gray-600">
-                Already have an account?{" "}
-                <Link
-                  to="/login"
-                  className="font-medium text-green-600 hover:text-green-500 transition-colors"
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full text-xs h-8 bg-white/50 hover:bg-white/80"
+                  onClick={() => onItemClick("Change Plan")}
                 >
-                  Sign in
-                </Link>
-              </p>
+                  <CreditCard size={12} className="mr-1" />
+                  Manage Plan
+                </Button>
+              </div>
             </div>
+          </div>
+        )}
 
-            <div className="text-xs text-center text-gray-500 bg-gray-50 rounded-xl p-3">
-              By creating an account, you agree to our{" "}
-              <a
-                href="/terms"
-                className="text-green-600 hover:underline font-medium"
+        {/* Navigation Items */}
+        <div className="space-y-1.5 py-2">
+          {items.map((item) => (
+            <Button
+              key={item.label}
+              variant={"ghost"}
+              className={`w-full ${isCollapsed ? "justify-center px-2" : "justify-start gap-3"} h-10 rounded-xl text-sm font-medium ${item.label === activeItem ? "bg-blue-50 text-blue-600 hover:bg-blue-100" : "text-gray-700 hover:bg-gray-100"}`}
+              onClick={() => onItemClick(item.label)}
+              title={isCollapsed ? item.label : undefined}
+            >
+              <span
+                className={`${item.label === activeItem ? "text-blue-600" : "text-gray-500"}`}
               >
-                Terms of Service
-              </a>{" "}
-              and{" "}
-              <a
-                href="/privacy"
-                className="text-green-600 hover:underline font-medium"
-              >
-                Privacy Policy
-              </a>
-            </div>
-          </form>
+                {item.icon}
+              </span>
+              {!isCollapsed && item.label}
+            </Button>
+          ))}
         </div>
+
+        {!isCollapsed && (
+          <>
+            <Separator className="my-4 bg-gray-100" />
+
+            <div className="space-y-3">
+              <h3 className="text-xs font-medium px-4 py-1 text-gray-500 uppercase tracking-wider">
+                Quick Stats
+              </h3>
+              <Button
+                variant="ghost"
+                className="w-full justify-start gap-3 h-9 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-100"
+              >
+                <span className="h-2 w-2 rounded-full bg-green-500"></span>
+                Active Numbers
+              </Button>
+              <Button
+                variant="ghost"
+                className="w-full justify-start gap-3 h-9 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-100"
+              >
+                <span className="h-2 w-2 rounded-full bg-blue-500"></span>
+                Call Flows
+              </Button>
+              <Button
+                variant="ghost"
+                className="w-full justify-start gap-3 h-9 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-100"
+              >
+                <span className="h-2 w-2 rounded-full bg-purple-500"></span>
+                Usage Stats
+              </Button>
+            </div>
+          </>
+        )}
+      </ScrollArea>
+
+      <div className="p-4 mt-auto border-t border-gray-200">
+        {defaultBottomItems.map((item) => (
+          <Button
+            key={item.label}
+            variant="ghost"
+            className={`w-full ${isCollapsed ? "justify-center px-2" : "justify-start gap-3"} h-10 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-100 mb-1.5`}
+            onClick={() => onItemClick(item.label)}
+            title={isCollapsed ? item.label : undefined}
+          >
+            <span className="text-gray-500">{item.icon}</span>
+            {!isCollapsed && item.label}
+          </Button>
+        ))}
       </div>
     </div>
   );
-}
+};
+
+export default Sidebar;

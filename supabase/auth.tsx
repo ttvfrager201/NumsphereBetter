@@ -154,17 +154,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (
-        event === "SIGNED_IN" ||
-        event === "SIGNED_OUT" ||
-        event === "TOKEN_REFRESHED"
-      ) {
+      console.log("Auth state change:", event);
+
+      // Only check payment status on specific auth events, not on every change
+      if (event === "SIGNED_IN") {
         setUser(session?.user ?? null);
         if (session?.user) {
           await checkPaymentStatus();
-        } else {
-          setHasCompletedPayment(false);
         }
+        setLoading(false);
+      } else if (event === "SIGNED_OUT") {
+        setUser(null);
+        setHasCompletedPayment(false);
+        setLoading(false);
+      } else if (event === "TOKEN_REFRESHED") {
+        // Don't check payment status on token refresh to avoid unnecessary calls
+        setUser(session?.user ?? null);
         setLoading(false);
       }
     });
