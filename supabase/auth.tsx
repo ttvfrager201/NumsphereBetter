@@ -205,7 +205,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signUp = async (email: string, password: string, fullName: string) => {
-    // Enhanced input validation
+    // Basic input validation
     if (!email || !password || !fullName) {
       throw new Error("All fields are required");
     }
@@ -216,15 +216,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error("Invalid email format");
     }
 
-    // Password strength validation
-    if (password.length < 8) {
-      throw new Error("Password must be at least 8 characters long");
-    }
-
-    if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(password)) {
-      throw new Error(
-        "Password must contain at least one uppercase letter, one lowercase letter, and one number",
-      );
+    // Basic password validation
+    if (password.length < 6) {
+      throw new Error("Password must be at least 6 characters long");
     }
 
     // Name validation
@@ -421,40 +415,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error("Invalid email format");
       }
 
-      // Password strength check
-      if (password.length < 8) {
-        throw new Error("Password must be at least 8 characters long");
-      }
-
-      // Check device status first to avoid unnecessary auth calls
-      const requiresOtp = await checkDeviceStatus(email);
-
-      // If device is trusted, proceed with normal sign in
-      if (!requiresOtp) {
-        const { error: passwordError } = await supabase.auth.signInWithPassword(
-          {
-            email,
-            password,
-          },
-        );
-
-        if (passwordError) {
-          // Handle rate limiting specifically
-          if (
-            passwordError.message?.includes("rate") ||
-            passwordError.message?.includes("limit")
-          ) {
-            throw new Error(
-              "Too many login attempts. Please wait a few minutes before trying again.",
-            );
-          }
-          throw passwordError;
-        }
-
-        return { requiresOtp: false };
-      }
-
-      // For new devices, verify password first without signing in
+      // Simple sign in without device checking to avoid rate limits
       const { error: passwordError } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -473,69 +434,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw passwordError;
       }
 
-      // Sign out immediately since we need OTP
-      await supabase.auth.signOut();
-
-      // Add delay to avoid rate limiting on OTP request
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      // Store OTP request time for 15-minute expiry
-      localStorage.setItem(`otp_request_${email}`, Date.now().toString());
-
-      // Send OTP with retry logic
-      let otpAttempts = 0;
-      const maxOtpAttempts = 3;
-
-      while (otpAttempts < maxOtpAttempts) {
-        try {
-          const { error: otpError } = await supabase.auth.signInWithOtp({
-            email,
-            options: {
-              shouldCreateUser: false,
-            },
-          });
-
-          if (!otpError) {
-            setRequiresOtpVerification(true);
-            return { requiresOtp: true };
-          }
-
-          // Handle rate limiting for OTP
-          if (
-            otpError.message?.includes("rate") ||
-            otpError.message?.includes("limit")
-          ) {
-            if (otpAttempts === maxOtpAttempts - 1) {
-              throw new Error(
-                "Email rate limit exceeded. Please wait 5-10 minutes before trying again.",
-              );
-            }
-            // Wait longer between attempts
-            await new Promise((resolve) =>
-              setTimeout(resolve, 2000 * (otpAttempts + 1)),
-            );
-            otpAttempts++;
-            continue;
-          }
-
-          throw otpError;
-        } catch (error) {
-          if (otpAttempts === maxOtpAttempts - 1) {
-            throw error;
-          }
-          otpAttempts++;
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-        }
-      }
-
-      throw new Error(
-        "Failed to send verification code after multiple attempts.",
-      );
+      return { requiresOtp: false };
     } catch (error: any) {
       // Provide user-friendly error messages
       if (error.message?.includes("rate") || error.message?.includes("limit")) {
         throw new Error(
-          "Too many requests. Please wait 5-10 minutes before trying again.",
+          "Too many requests. Please wait a few minutes before trying again.",
         );
       }
       throw error;
@@ -678,50 +582,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.setItem(`otp_request_${email}`, Date.now().toString());
 
       if (type === "signin" || type === "password_reset") {
-        // Add delay to avoid rate limiting
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        // Simple OTP request without retry logic to avoid rate limits
+        const { error } = await supabase.auth.signInWithOtp({
+          email,
+          options: {
+            shouldCreateUser: false,
+            data:
+              type === "password_reset"
+                ? { type: "password_reset" }
+                : undefined,
+          },
+        });
 
-        // For sign in OTP or password reset, use signInWithOtp with retry logic
-        let attempts = 0;
-        const maxAttempts = 2;
-
-        while (attempts < maxAttempts) {
-          try {
-            const { error } = await supabase.auth.signInWithOtp({
-              email,
-              options: {
-                shouldCreateUser: false,
-                data:
-                  type === "password_reset"
-                    ? { type: "password_reset" }
-                    : undefined,
-              },
-            });
-
-            if (!error) return;
-
-            if (
-              error.message?.includes("rate") ||
-              error.message?.includes("limit")
-            ) {
-              if (attempts === maxAttempts - 1) {
-                throw new Error(
-                  "Email rate limit exceeded. Please wait 5-10 minutes before requesting another code.",
-                );
-              }
-              await new Promise((resolve) => setTimeout(resolve, 3000));
-              attempts++;
-              continue;
-            }
-
-            throw error;
-          } catch (err) {
-            if (attempts === maxAttempts - 1) {
-              throw err;
-            }
-            attempts++;
-            await new Promise((resolve) => setTimeout(resolve, 2000));
+        if (error) {
+          if (
+            error.message?.includes("rate") ||
+            error.message?.includes("limit")
+          ) {
+            throw new Error(
+              "Please wait a moment before requesting another code.",
+            );
           }
+          throw error;
         }
       } else {
         // For signup/email change, use resend
@@ -739,7 +621,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             error.message?.includes("limit")
           ) {
             throw new Error(
-              "Email rate limit exceeded. Please wait 5-10 minutes before requesting another code.",
+              "Please wait a moment before requesting another code.",
             );
           }
           throw error;
@@ -749,9 +631,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     } catch (error: any) {
       if (error.message?.includes("rate") || error.message?.includes("limit")) {
-        throw new Error(
-          "Too many email requests. Please wait 5-10 minutes before trying again.",
-        );
+        throw new Error("Please wait a moment before trying again.");
       }
       throw error;
     }

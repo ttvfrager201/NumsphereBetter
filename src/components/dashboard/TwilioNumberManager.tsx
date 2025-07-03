@@ -24,6 +24,7 @@ import { Phone, Plus, Search, MapPin, Clock, AlertCircle } from "lucide-react";
 import { useAuth } from "../../../supabase/auth";
 import { supabase } from "../../../supabase/supabase";
 import { useToast } from "@/components/ui/use-toast";
+import CallFlowManager from "./CallFlowManager";
 
 interface TwilioNumber {
   id: string;
@@ -70,10 +71,30 @@ export default function TwilioNumberManager() {
   const { user } = useAuth();
   const { toast } = useToast();
 
-  // Fetch user's existing numbers
+  // Fetch user's existing numbers and check release status
   useEffect(() => {
     fetchUserNumbers();
+    checkReleaseStatus();
   }, [user]);
+
+  const checkReleaseStatus = async () => {
+    if (!user) return;
+
+    try {
+      const { data, error } = await supabase
+        .from("number_audit_log")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("action", "released")
+        .limit(1);
+
+      if (!error && data && data.length > 0) {
+        setHasUsedRelease(true);
+      }
+    } catch (error) {
+      console.error("Error checking release status:", error);
+    }
+  };
 
   const fetchUserNumbers = async () => {
     if (!user) return;
@@ -348,12 +369,21 @@ export default function TwilioNumberManager() {
     return phoneNumber;
   };
 
+  const [showCallFlowManager, setShowCallFlowManager] = useState(false);
+  const [selectedNumberForFlows, setSelectedNumberForFlows] = useState<{
+    id: string;
+    phoneNumber: string;
+  } | null>(null);
+
   const handleManageFlows = (numberId: string) => {
-    toast({
-      title: "Call Flow Management",
-      description:
-        "Call flow management interface coming soon! You'll be able to create custom voice menus, voicemail, and call routing.",
-    });
+    const number = userNumbers.find((n) => n.id === numberId);
+    if (number) {
+      setSelectedNumberForFlows({
+        id: numberId,
+        phoneNumber: number.phone_number,
+      });
+      setShowCallFlowManager(true);
+    }
   };
 
   const [showReleaseDialog, setShowReleaseDialog] = useState(false);
@@ -361,8 +391,19 @@ export default function TwilioNumberManager() {
     null,
   );
   const [isReleasing, setIsReleasing] = useState(false);
+  const [hasUsedRelease, setHasUsedRelease] = useState(false);
 
   const handleNumberSettings = (numberId: string) => {
+    if (hasUsedRelease) {
+      toast({
+        title: "Release Limit Reached",
+        description:
+          "You have already used your one-time number release ticket for this subscription. Contact support if you need to release another number.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     const number = userNumbers.find((n) => n.id === numberId);
     if (number) {
       setNumberToRelease(number);
@@ -404,8 +445,9 @@ export default function TwilioNumberManager() {
           description: `${formatPhoneNumber(numberToRelease.phone_number)} has been released and is no longer active.`,
         });
 
-        // Refresh the numbers list
+        // Refresh the numbers list and release status
         await fetchUserNumbers();
+        await checkReleaseStatus();
         setShowReleaseDialog(false);
         setNumberToRelease(null);
       } else {
@@ -737,9 +779,14 @@ export default function TwilioNumberManager() {
                     variant="outline"
                     size="sm"
                     onClick={() => handleNumberSettings(number.id)}
-                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                    className={`${
+                      hasUsedRelease
+                        ? "text-gray-400 cursor-not-allowed"
+                        : "text-red-600 hover:text-red-700 hover:bg-red-50"
+                    }`}
+                    disabled={hasUsedRelease}
                   >
-                    Release Number
+                    {hasUsedRelease ? "Release Used" : "Release Number"}
                   </Button>
                 </div>
               </div>
@@ -781,6 +828,15 @@ export default function TwilioNumberManager() {
                 </div>
               </div>
               <div className="text-sm text-gray-600">
+                <div className="mb-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <p className="font-semibold text-yellow-800 mb-2">
+                    🎫 This is your ONE-TIME release ticket!
+                  </p>
+                  <p className="text-yellow-700 text-xs">
+                    You can only release one number per subscription to prevent
+                    abuse. Use it wisely!
+                  </p>
+                </div>
                 <p className="mb-2">
                   ⚠️ <strong>Warning:</strong>
                 </p>
@@ -789,6 +845,11 @@ export default function TwilioNumberManager() {
                   <li>All call flows and settings will be deleted</li>
                   <li>You may not be able to get this exact number back</li>
                   <li>Any unused minutes will be forfeited</li>
+                  <li>
+                    <strong>
+                      This is your only release ticket for this subscription
+                    </strong>
+                  </li>
                 </ul>
               </div>
               <div className="flex gap-2">
@@ -813,6 +874,22 @@ export default function TwilioNumberManager() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Call Flow Manager */}
+      {showCallFlowManager && selectedNumberForFlows && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-hidden">
+            <CallFlowManager
+              numberId={selectedNumberForFlows.id}
+              phoneNumber={selectedNumberForFlows.phoneNumber}
+              onClose={() => {
+                setShowCallFlowManager(false);
+                setSelectedNumberForFlows(null);
+              }}
+            />
+          </div>
+        </div>
+      )}
     </Card>
   );
 }

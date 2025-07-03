@@ -119,33 +119,23 @@ export default function LoginForm() {
       }
     } catch (error: any) {
       let errorMessage = "Failed to sign in";
-      let isRateLimit = false;
 
-      if (error.message?.includes("rate") || error.message?.includes("limit")) {
-        errorMessage = error.message.includes("Email rate limit")
-          ? error.message
-          : "Too many login attempts. Please wait 5-10 minutes before trying again.";
-        isRateLimit = true;
-      } else if (error.message?.includes("Invalid login credentials")) {
+      if (error.message?.includes("Invalid login credentials")) {
         errorMessage =
           "Invalid email or password. Please check your credentials.";
       } else if (error.message?.includes("Email not confirmed")) {
         errorMessage =
           "Please check your email and click the confirmation link before signing in.";
-      } else if (error.message?.includes("Too many requests")) {
-        errorMessage =
-          "Too many requests. Please wait 5-10 minutes before trying again.";
-        isRateLimit = true;
       } else if (error.message) {
         errorMessage = error.message;
       }
 
       setError(errorMessage);
       toast({
-        title: isRateLimit ? "Rate limit exceeded" : "Sign in failed",
+        title: "Sign in failed",
         description: errorMessage,
         variant: "destructive",
-        duration: isRateLimit ? 8000 : 5000, // Show rate limit errors longer
+        duration: 5000,
       });
     } finally {
       setIsLoading(false);

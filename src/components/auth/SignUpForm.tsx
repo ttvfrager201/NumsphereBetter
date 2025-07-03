@@ -123,13 +123,8 @@ export default function SignUpForm() {
       }, 800);
     } catch (error: any) {
       let errorMessage = error.message || "Failed to create account";
-      let isRateLimit = false;
 
-      if (error.message?.includes("rate") || error.message?.includes("limit")) {
-        errorMessage =
-          "Too many signup attempts. Please wait 5-10 minutes before trying again.";
-        isRateLimit = true;
-      } else if (
+      if (
         error.message?.includes("User already registered") ||
         error.message?.includes("already registered")
       ) {
@@ -143,18 +138,12 @@ export default function SignUpForm() {
 
       setError(errorMessage);
       toast({
-        title: isRateLimit
-          ? "Rate limit exceeded"
-          : error.message?.includes("already registered")
-            ? "Account exists"
-            : "Sign up failed",
+        title: error.message?.includes("already registered")
+          ? "Account exists"
+          : "Sign up failed",
         description: errorMessage,
         variant: "destructive",
-        duration: isRateLimit
-          ? 8000
-          : error.message?.includes("already registered")
-            ? 6000
-            : 5000,
+        duration: error.message?.includes("already registered") ? 6000 : 5000,
       });
     } finally {
       setIsLoading(false);
