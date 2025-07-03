@@ -4,9 +4,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 // CORS headers - Enhanced for better compatibility
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "*",
+  "Access-Control-Allow-Methods": "*",
   "Access-Control-Max-Age": "86400",
 };
 
@@ -87,7 +86,7 @@ Deno.serve(async (req) => {
     // Initialize environment variables
     const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_KEY");
+    const supabaseServiceKey = Deno.env.get("SERVICE_KEY");
 
     if (!stripeSecretKey || !supabaseUrl || !supabaseServiceKey) {
       return new Response(

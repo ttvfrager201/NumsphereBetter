@@ -93,7 +93,7 @@ const BillingManagement = () => {
       console.log("Creating customer portal for user:", user.id);
 
       const { data, error } = await supabase.functions.invoke(
-        "create-customer-portal",
+        "supabase-functions-create-customer-portal",
         {
           body: { userId: user.id },
         },
