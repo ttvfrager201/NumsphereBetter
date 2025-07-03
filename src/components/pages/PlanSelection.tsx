@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -124,11 +124,37 @@ export default function PlanSelection({
 }: {
   hasActiveSubscription?: boolean;
 }) {
+  const [isChangingPlan, setIsChangingPlan] = useState(false);
+  const [currentPlan, setCurrentPlan] = useState<string | null>(null);
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
   const { toast } = useToast();
+
+  // Check if this is a plan change request
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const changePlan = urlParams.get("change_plan");
+    if (changePlan === "true") {
+      setIsChangingPlan(true);
+      // Get current plan from user subscription
+      const fetchCurrentPlan = async () => {
+        if (user) {
+          const { data } = await supabase
+            .from("user_subscriptions")
+            .select("plan_id")
+            .eq("user_id", user.id)
+            .eq("status", "active")
+            .single();
+          if (data) {
+            setCurrentPlan(data.plan_id);
+          }
+        }
+      };
+      fetchCurrentPlan();
+    }
+  }, [user]);
 
   const handleSignOut = async () => {
     try {
@@ -253,6 +279,8 @@ export default function PlanSelection({
             planId,
             userId: user.id,
             userEmail: user.email,
+            isChangingPlan: isChangingPlan,
+            currentPlan: currentPlan,
           },
         },
       );
@@ -390,12 +418,24 @@ export default function PlanSelection({
       <main className="max-w-7xl mx-auto px-6 py-12">
         <div className="text-center mb-12">
           <h2 className="text-4xl md:text-5xl font-bold tracking-tight mb-4 bg-gradient-to-r from-gray-900 to-blue-900 bg-clip-text text-transparent">
-            Choose Your Plan
+            {isChangingPlan ? "Change Your Plan" : "Choose Your Plan"}
           </h2>
           <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-            Select the perfect VoIP solution for your business needs. You can
-            upgrade or downgrade at any time.
+            {isChangingPlan
+              ? `You're currently on the ${currentPlan ? currentPlan.charAt(0).toUpperCase() + currentPlan.slice(1) : ""} plan. Select a new plan below to upgrade or downgrade.`
+              : "Select the perfect VoIP solution for your business needs. You can upgrade or downgrade at any time."}
           </p>
+          {isChangingPlan && (
+            <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg inline-block">
+              <p className="text-sm text-blue-800">
+                💡 <strong>Plan Change:</strong> Your new plan will take effect
+                immediately.
+                {currentPlan && plans.find((p) => p.id === currentPlan) && (
+                  <span>You'll be prorated for the difference.</span>
+                )}
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl mx-auto">
@@ -458,20 +498,30 @@ export default function PlanSelection({
 
                   <Button
                     onClick={() => handlePlanSelect(plan.id)}
-                    disabled={isLoading}
+                    disabled={
+                      isLoading || (isChangingPlan && currentPlan === plan.id)
+                    }
                     className={`w-full h-12 rounded-xl font-semibold transition-all duration-200 transform hover:scale-[1.02] ${
-                      plan.popular
-                        ? "bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-lg"
-                        : `bg-gradient-to-r ${plan.color} hover:opacity-90 text-white shadow-lg`
+                      isChangingPlan && currentPlan === plan.id
+                        ? "bg-gray-400 text-gray-600 cursor-not-allowed"
+                        : plan.popular
+                          ? "bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-lg"
+                          : `bg-gradient-to-r ${plan.color} hover:opacity-90 text-white shadow-lg`
                     } ${
                       isCurrentlyLoading ? "opacity-75 cursor-not-allowed" : ""
                     }`}
                   >
-                    {isCurrentlyLoading ? (
+                    {isChangingPlan && currentPlan === plan.id ? (
+                      "Current Plan"
+                    ) : isCurrentlyLoading ? (
                       <div className="flex items-center justify-center">
                         <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
-                        Setting up your plan...
+                        {isChangingPlan
+                          ? "Changing plan..."
+                          : "Setting up your plan..."}
                       </div>
+                    ) : isChangingPlan ? (
+                      `Change to ${plan.name}`
                     ) : (
                       `Get Started with ${plan.name}`
                     )}

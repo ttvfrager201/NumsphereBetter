@@ -31,11 +31,24 @@ function PlanSelectionWrapper() {
   );
 
   React.useEffect(() => {
-    // Check for payment cancellation
-    if (searchParams.get("cancelled") === "true") {
+    // Check for payment cancellation or plan change cancellation
+    if (
+      searchParams.get("cancelled") === "true" ||
+      searchParams.get("plan_change_cancelled") === "true"
+    ) {
       // Clear any pending session data
       sessionStorage.removeItem("payment_session");
       setIsCheckingSubscription(false);
+      return;
+    }
+
+    // Check for successful plan change
+    if (searchParams.get("plan_changed") === "true") {
+      // Clear URL params and redirect to dashboard
+      window.history.replaceState({}, document.title, window.location.pathname);
+      navigate("/dashboard?tab=Select Number&first_time=true", {
+        replace: true,
+      });
       return;
     }
 

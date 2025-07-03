@@ -8,49 +8,12 @@ const corsHeaders = {
   "Access-Control-Max-Age": "86400",
 };
 
-// Configuration utilities
-async function getFrontendBaseUrl(): Promise<string> {
-  try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const supabaseServiceKey = Deno.env.get("SERVICE_KEY");
-
-    if (!supabaseUrl || !supabaseServiceKey) {
-      throw new Error("Missing Supabase configuration");
-    }
-
-    const response = await fetch(
-      `${supabaseUrl}/rest/v1/app_settings?select=frontend_url&key=eq.frontend_base_url`,
-      {
-        headers: {
-          Authorization: `Bearer ${supabaseServiceKey}`,
-          apikey: supabaseServiceKey,
-          "Content-Type": "application/json",
-        },
-      },
-    );
-
-    if (response.ok) {
-      const data = await response.json();
-      if (data && data.length > 0 && data[0].frontend_url) {
-        console.log("Using database frontend URL:", data[0].frontend_url);
-        return data[0].frontend_url;
-      }
-    }
-
-    // Fallback to environment variable or default
-    const fallbackUrl =
-      Deno.env.get("FRONTEND_URL") ||
-      "https://lucid-margulis8-9p4ak.view-3.tempo-dev.app";
-    console.log("Using fallback frontend URL:", fallbackUrl);
-    return fallbackUrl;
-  } catch (error) {
-    console.error("Error fetching frontend URL from database:", error);
-    const fallbackUrl =
-      Deno.env.get("FRONTEND_URL") ||
-      "https://lucid-margulis8-9p4ak.view-3.tempo-dev.app";
-    console.log("Using fallback frontend URL due to error:", fallbackUrl);
-    return fallbackUrl;
-  }
+// Configuration utilities - Use hardcoded URL to avoid database issues
+function getFrontendBaseUrl(): string {
+  // Use hardcoded URL to prevent white screen issues
+  const frontendUrl = "https://brave-hermann1-w8aje.view-3.tempo-dev.app";
+  console.log("Using hardcoded frontend URL:", frontendUrl);
+  return frontendUrl;
 }
 
 function logConfig(context: string): void {
@@ -83,7 +46,13 @@ Deno.serve(async (req) => {
     });
   }
 
-  const { planId, userId, userEmail } = body;
+  const {
+    planId,
+    userId,
+    userEmail,
+    isChangingPlan = false,
+    currentPlan = null,
+  } = body;
 
   if (!planId || !userId || !userEmail) {
     console.error("Missing parameters:", { planId, userId, userEmail });
@@ -129,7 +98,7 @@ Deno.serve(async (req) => {
   const stripe = new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" });
 
   try {
-    const frontendUrl = await getFrontendBaseUrl();
+    const frontendUrl = getFrontendBaseUrl();
 
     // Generate enhanced security tokens
     const securityToken = crypto.randomUUID();
@@ -137,44 +106,98 @@ Deno.serve(async (req) => {
     const timestamp = Date.now().toString();
     const expiryTime = Date.now() + 15 * 60 * 1000; // 15 minutes
 
-    const checkoutSession = await stripe.checkout.sessions.create({
-      mode: "subscription",
-      payment_method_types: ["card"],
-      line_items: [
-        {
-          price: priceId,
-          quantity: 1,
+    // Handle plan changes differently
+    let checkoutSession;
+
+    if (isChangingPlan && currentPlan) {
+      // For plan changes, we need to update the existing subscription
+      console.log(
+        `Creating plan change session from ${currentPlan} to ${planId}`,
+      );
+
+      checkoutSession = await stripe.checkout.sessions.create({
+        mode: "subscription",
+        payment_method_types: ["card"],
+        line_items: [
+          {
+            price: priceId,
+            quantity: 1,
+          },
+        ],
+        success_url: `${frontendUrl}/success?session_id={CHECKOUT_SESSION_ID}&security_token=${securityToken}&session_token=${sessionToken}&redirect_to_dashboard=true&plan_changed=true`,
+        cancel_url: `${frontendUrl}/dashboard?plan_change_cancelled=true`,
+        customer_email: userEmail,
+        metadata: {
+          user_id: userId,
+          plan_id: planId,
+          is_changing_plan: "true",
+          current_plan: currentPlan,
+          security_token: securityToken,
+          session_token: sessionToken,
+          created_timestamp: timestamp,
+          expiry_time: expiryTime.toString(),
+          frontend_url: frontendUrl,
         },
-      ],
-      success_url: `${frontendUrl}/success?session_id={CHECKOUT_SESSION_ID}&security_token=${securityToken}&session_token=${sessionToken}&redirect_to_dashboard=true`,
-      cancel_url: `${frontendUrl}/plan-selection?cancelled=true&reason=user_cancelled`,
-      customer_email: userEmail,
-      metadata: {
-        user_id: userId,
-        plan_id: planId,
-        security_token: securityToken,
-        session_token: sessionToken,
-        created_timestamp: timestamp,
-        expiry_time: expiryTime.toString(),
-        frontend_url: frontendUrl,
-      },
-      subscription_data: {
+        subscription_data: {
+          metadata: {
+            user_id: userId,
+            plan_id: planId,
+            is_changing_plan: "true",
+            current_plan: currentPlan,
+            security_token: securityToken,
+            session_token: sessionToken,
+            created_timestamp: timestamp,
+          },
+        },
+        automatic_tax: { enabled: false },
+        allow_promotion_codes: true,
+        billing_address_collection: "required",
+        phone_number_collection: {
+          enabled: true,
+        },
+        expires_at: Math.floor(Date.now() / 1000) + 30 * 60, // 30 minutes expiry
+      });
+    } else {
+      // Regular new subscription
+      checkoutSession = await stripe.checkout.sessions.create({
+        mode: "subscription",
+        payment_method_types: ["card"],
+        line_items: [
+          {
+            price: priceId,
+            quantity: 1,
+          },
+        ],
+        success_url: `${frontendUrl}/success?session_id={CHECKOUT_SESSION_ID}&security_token=${securityToken}&session_token=${sessionToken}&redirect_to_dashboard=true`,
+        cancel_url: `${frontendUrl}/plan-selection?cancelled=true&reason=user_cancelled`,
+        customer_email: userEmail,
         metadata: {
           user_id: userId,
           plan_id: planId,
           security_token: securityToken,
           session_token: sessionToken,
           created_timestamp: timestamp,
+          expiry_time: expiryTime.toString(),
+          frontend_url: frontendUrl,
         },
-      },
-      automatic_tax: { enabled: false },
-      allow_promotion_codes: true,
-      billing_address_collection: "required",
-      phone_number_collection: {
-        enabled: true,
-      },
-      expires_at: Math.floor(Date.now() / 1000) + 30 * 60, // 30 minutes expiry
-    });
+        subscription_data: {
+          metadata: {
+            user_id: userId,
+            plan_id: planId,
+            security_token: securityToken,
+            session_token: sessionToken,
+            created_timestamp: timestamp,
+          },
+        },
+        automatic_tax: { enabled: false },
+        allow_promotion_codes: true,
+        billing_address_collection: "required",
+        phone_number_collection: {
+          enabled: true,
+        },
+        expires_at: Math.floor(Date.now() / 1000) + 30 * 60, // 30 minutes expiry
+      });
+    }
 
     console.log("Checkout session created successfully:", {
       sessionId: checkoutSession.id,

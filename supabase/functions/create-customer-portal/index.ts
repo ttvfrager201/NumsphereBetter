@@ -131,19 +131,19 @@ Deno.serve(async (req) => {
 
     const customerId = subscriptionData.stripe_customer_id;
 
-    // Get the origin from request headers or use the project URL
+    // Get the origin from request headers or use the current project URL
     const origin =
       req.headers.get("origin") ||
       req.headers.get("referer")?.split("/").slice(0, 3).join("/") ||
-      "https://lucid-margulis8-9p4ak.view-3.tempo-dev.app";
+      "https://brave-hermann1-w8aje.view-3.tempo-dev.app";
 
     console.log("Creating customer portal for customer:", customerId);
     console.log("Return URL:", `${origin}/dashboard`);
 
-    // Create customer portal session
+    // Create customer portal session with stable return URL
     const portalSession = await stripe.billingPortal.sessions.create({
       customer: customerId,
-      return_url: `${origin}/dashboard`,
+      return_url: `${origin}/dashboard?from=billing_portal`,
     });
 
     console.log("Customer portal created successfully:", portalSession.url);

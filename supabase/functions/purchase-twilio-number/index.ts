@@ -229,7 +229,7 @@ Deno.serve(async (req) => {
     const twilioAccountSid = Deno.env.get("TWILIO_ACCOUNT_SID");
     const twilioAuthToken = Deno.env.get("TWILIO_AUTH_TOKEN");
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_KEY")!;
+    const supabaseServiceKey = Deno.env.get("SERVICE_KEY")!;
 
     if (!twilioAccountSid || !twilioAuthToken) {
       console.error(
@@ -299,7 +299,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Define comprehensive plan limits
+    // Define comprehensive plan limits with updated numbers
     const planLimits: Record<string, { minutes: number; maxNumbers: number }> =
       {
         starter: { minutes: 500, maxNumbers: 1 },

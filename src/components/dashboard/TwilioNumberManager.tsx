@@ -221,6 +221,33 @@ export default function TwilioNumberManager() {
 
       const planId = subscriptionData.plan_id;
 
+      // Check current number count against plan limits
+      const planLimits = {
+        starter: { maxNumbers: 1, minutes: 500 },
+        business: { maxNumbers: 5, minutes: 2000 },
+        enterprise: { maxNumbers: 25, minutes: 10000 },
+      };
+
+      const currentLimit = planLimits[planId as keyof typeof planLimits];
+      if (!currentLimit) {
+        toast({
+          title: "Invalid plan",
+          description:
+            "Your current plan is not recognized. Please contact support.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (userNumbers.length >= currentLimit.maxNumbers) {
+        toast({
+          title: "Number limit reached",
+          description: `Your ${planId} plan allows up to ${currentLimit.maxNumbers} phone numbers. Please upgrade your plan or remove an existing number.`,
+          variant: "destructive",
+        });
+        return;
+      }
+
       console.log(
         `Purchasing number ${phoneNumber} for user ${user.id} on ${planId} plan`,
       );
@@ -274,7 +301,7 @@ export default function TwilioNumberManager() {
 
         toast({
           title: "🎉 Number purchased successfully!",
-          description: `${data.number?.formatted_number || phoneNumber} is now ready to use with ${data.minutesAllocated} minutes allocated.`,
+          description: `${data.number?.formatted_number || phoneNumber} is now ready to use with ${data.minutesAllocated} minutes allocated for your ${data.planId} plan.`,
         });
 
         // Close dialog and refresh numbers

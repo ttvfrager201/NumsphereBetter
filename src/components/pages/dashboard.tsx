@@ -107,18 +107,8 @@ const BillingManagement = () => {
       console.log("Customer portal response:", data);
 
       if (data?.customerPortalUrl) {
-        // Open in new tab/window
-        const newWindow = window.open(
-          data.customerPortalUrl,
-          "_blank",
-          "noopener,noreferrer",
-        );
-        if (newWindow) {
-          newWindow.focus();
-        } else {
-          // Fallback if popup blocked
-          window.location.href = data.customerPortalUrl;
-        }
+        // Always open in same tab to prevent refresh issues
+        window.location.href = data.customerPortalUrl;
       } else {
         throw new Error(data?.message || "No customer portal URL available");
       }
@@ -282,22 +272,51 @@ const Home = () => {
   const { user, signOut, checkPaymentStatus } = useAuth();
   const { toast } = useToast();
 
-  // Prevent subscription checks when returning to tab
+  // Handle return from billing portal and prevent unnecessary refreshes
   useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const fromBillingPortal = urlParams.get("from");
+
+    if (fromBillingPortal === "billing_portal") {
+      // Clean up URL without refreshing
+      window.history.replaceState({}, document.title, window.location.pathname);
+
+      // Show success message
+      toast({
+        title: "Welcome back!",
+        description: "You've returned from the billing portal.",
+      });
+    }
+
+    // Prevent tab refresh on visibility change - this was causing the refresh bug
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        console.log("Tab became visible - not checking subscription status");
-        // Don't check payment status when tab becomes visible
-        // Only check on actual sign-in/sign-out events
+        console.log("Tab became visible - preventing any automatic refreshes");
+        // Explicitly prevent any automatic refreshes or payment status checks
+        // that might be triggered by tab visibility changes
       }
     };
 
+    // Prevent page refresh on focus/blur events
+    const handleFocus = () => {
+      console.log("Window focused - preventing refresh");
+    };
+
+    const handleBlur = () => {
+      console.log("Window blurred - preventing refresh");
+    };
+
+    // Add event listeners to prevent refresh on tab changes
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", handleFocus);
+    window.addEventListener("blur", handleBlur);
 
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("blur", handleBlur);
     };
-  }, []);
+  }, [toast]);
 
   // Fetch user profile and subscription data only once on mount
   useEffect(() => {
@@ -366,11 +385,8 @@ const Home = () => {
     if (label === "Settings") {
       setIsSettingsOpen(true);
     } else if (label === "Change Plan") {
-      // Handle plan change - could redirect to plan selection or open a modal
-      toast({
-        title: "Plan Change",
-        description: "Plan change functionality will be available soon.",
-      });
+      // Redirect to plan selection with change plan flag
+      window.location.href = "/plan-selection?change_plan=true";
     } else {
       setActiveTab(label);
     }

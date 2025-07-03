@@ -129,17 +129,32 @@ export default function SignUpForm() {
         errorMessage =
           "Too many signup attempts. Please wait 5-10 minutes before trying again.";
         isRateLimit = true;
-      } else if (error.message?.includes("User already registered")) {
+      } else if (
+        error.message?.includes("User already registered") ||
+        error.message?.includes("already registered")
+      ) {
         errorMessage =
           "An account with this email already exists. Please sign in instead.";
+        // Redirect to login page after showing error
+        setTimeout(() => {
+          navigate("/login");
+        }, 3000);
       }
 
       setError(errorMessage);
       toast({
-        title: isRateLimit ? "Rate limit exceeded" : "Sign up failed",
+        title: isRateLimit
+          ? "Rate limit exceeded"
+          : error.message?.includes("already registered")
+            ? "Account exists"
+            : "Sign up failed",
         description: errorMessage,
         variant: "destructive",
-        duration: isRateLimit ? 8000 : 5000,
+        duration: isRateLimit
+          ? 8000
+          : error.message?.includes("already registered")
+            ? 6000
+            : 5000,
       });
     } finally {
       setIsLoading(false);

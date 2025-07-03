@@ -77,15 +77,14 @@ type Database = {
 function logConfig(context: string): void {
   console.log(`[${context}] Configuration:`, {
     supabase_url: Deno.env.get("SUPABASE_URL"),
-    frontend_url: Deno.env.get("FRONTEND_URL"),
-    vite_app_url: Deno.env.get("VITE_APP_URL"),
-    deployment_url: Deno.env.get("DEPLOYMENT_URL"),
+    frontend_url: "https://brave-hermann1-w8aje.view-3.tempo-dev.app",
+    hardcoded_url: true,
   });
 }
 
 function createSupabaseClient() {
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const supabaseServiceKey = Deno.env.get("SERVICE_KEY");
+  const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_KEY");
 
   if (!supabaseUrl || !supabaseServiceKey) {
     throw new Error("Missing Supabase environment variables");
