@@ -4,6 +4,7 @@ import Sidebar from "../dashboard/layout/Sidebar";
 import DashboardGrid from "../dashboard/DashboardGrid";
 import TaskBoard from "../dashboard/TaskBoard";
 import TwilioNumberManager from "../dashboard/TwilioNumberManager";
+import CallFlowManager from "../dashboard/CallFlowManager";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -861,16 +862,17 @@ const Home = () => {
             )}
 
             {activeTab === "Call Flows" && (
-              <div className="text-center py-8">
-                <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-4">
-                  Call Flows
-                </h2>
-                <p className="text-gray-600 dark:text-gray-300">
-                  Design and manage your custom call flows here.
-                </p>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
-                  Coming soon...
-                </p>
+              <div className="space-y-6">
+                <div className="text-center py-8">
+                  <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-4">
+                    Call Flow Management
+                  </h2>
+                  <p className="text-gray-600 dark:text-gray-300">
+                    Design and manage your custom call flows for your phone
+                    numbers.
+                  </p>
+                </div>
+                <CallFlowManager />
               </div>
             )}
 

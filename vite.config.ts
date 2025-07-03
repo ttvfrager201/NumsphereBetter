@@ -3,17 +3,6 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import { tempo } from "tempo-devtools/dist/vite";
 
-const conditionalPlugins: [string, Record<string, any>][] = [];
-
-// @ts-ignore
-if (process.env.TEMPO === "true") {
-  try {
-    conditionalPlugins.push(["tempo-devtools/swc", {}]);
-  } catch (error) {
-    console.warn("Failed to load tempo-devtools/swc plugin:", error);
-  }
-}
-
 // https://vitejs.dev/config/
 export default defineConfig({
   base: "/",
@@ -21,12 +10,7 @@ export default defineConfig({
     entries: ["src/main.tsx"],
     include: ["react", "react-dom", "react-router-dom"],
   },
-  plugins: [
-    react({
-      plugins: conditionalPlugins.length > 0 ? conditionalPlugins : undefined,
-    }),
-    tempo(),
-  ],
+  plugins: [react(), tempo()],
   resolve: {
     preserveSymlinks: false,
     alias: {

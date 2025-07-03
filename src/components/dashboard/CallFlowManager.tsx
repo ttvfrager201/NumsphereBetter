@@ -38,18 +38,10 @@ import {
   PhoneForwarded,
   Mic,
   Volume2,
-  ArrowDown,
-  ArrowRight,
-  Copy,
   Edit,
-  Move,
   Zap,
-  Menu,
-  Clock,
-  Users,
   Hash,
   Pause,
-  RotateCcw,
   X,
   ChevronDown,
   ChevronUp,
@@ -59,12 +51,23 @@ import { useAuth } from "../../../supabase/auth";
 import { supabase } from "../../../supabase/supabase";
 import { useToast } from "@/components/ui/use-toast";
 
+interface TwilioNumber {
+  id: string;
+  phone_number: string;
+  friendly_name: string | null;
+  status: string;
+  minutes_used: number;
+  minutes_allocated: number;
+  plan_id: string;
+}
+
 interface CallFlow {
   id: string;
   flow_name: string;
   flow_config: any;
   is_active: boolean;
   created_at: string;
+  twilio_number_id: string;
   twilio_numbers?: {
     phone_number: string;
     friendly_name: string;
@@ -85,12 +88,6 @@ interface FlowBlock {
   config: any;
   position: { x: number; y: number };
   connections: string[];
-}
-
-interface CallFlowManagerProps {
-  numberId: string;
-  phoneNumber: string;
-  onClose: () => void;
 }
 
 const VOICE_OPTIONS = [
@@ -171,81 +168,6 @@ const FLOW_PRESETS = [
       },
     ],
   },
-  {
-    id: "appointment-booking",
-    name: "📅 Appointment Booking",
-    description: "Automated appointment scheduling system",
-    blocks: [
-      {
-        id: "1",
-        type: "say",
-        config: { text: "Thank you for calling our appointment line!" },
-        position: { x: 100, y: 100 },
-        connections: ["2"],
-      },
-      {
-        id: "2",
-        type: "gather",
-        config: {
-          prompt:
-            "Press 1 to schedule an appointment, 2 to cancel or reschedule, or 3 to speak with reception.",
-          options: [
-            {
-              digit: "1",
-              action: "say",
-              text: "Please hold while we connect you to our booking system.",
-            },
-            {
-              digit: "2",
-              action: "say",
-              text: "Please hold while we connect you to our scheduling team.",
-            },
-            { digit: "3", action: "forward", text: "Reception" },
-          ],
-        },
-        position: { x: 100, y: 200 },
-        connections: [],
-      },
-    ],
-  },
-  {
-    id: "restaurant-orders",
-    name: "🍕 Restaurant Orders",
-    description: "Food ordering and delivery information",
-    blocks: [
-      {
-        id: "1",
-        type: "say",
-        config: { text: "Welcome to Tony's Pizza! We're glad you called." },
-        position: { x: 100, y: 100 },
-        connections: ["2"],
-      },
-      {
-        id: "2",
-        type: "gather",
-        config: {
-          prompt:
-            "Press 1 to place an order, 2 for delivery information, 3 for hours and location, or 0 to speak with someone.",
-          options: [
-            { digit: "1", action: "forward", text: "Order Line" },
-            {
-              digit: "2",
-              action: "say",
-              text: "We deliver within 5 miles. Delivery fee is $3.99 with a $15 minimum order.",
-            },
-            {
-              digit: "3",
-              action: "say",
-              text: "We are open Monday through Sunday, 11 AM to 10 PM. Located at 456 Pizza Street.",
-            },
-            { digit: "0", action: "forward", text: "Staff Member" },
-          ],
-        },
-        position: { x: 100, y: 200 },
-        connections: [],
-      },
-    ],
-  },
 ];
 
 const BLOCK_TYPES = [
@@ -308,14 +230,6 @@ const BLOCK_TYPES = [
     config: { url: "https://example.com/audio.mp3" },
   },
   {
-    type: "sms",
-    icon: MessageSquare,
-    label: "Send SMS",
-    description: "Send a text message",
-    color: "bg-pink-500",
-    config: { message: "Thank you for calling!", to: "" },
-  },
-  {
     type: "hangup",
     icon: Phone,
     label: "End Call",
@@ -325,16 +239,14 @@ const BLOCK_TYPES = [
   },
 ];
 
-export default function CallFlowManager({
-  numberId,
-  phoneNumber,
-  onClose,
-}: CallFlowManagerProps) {
+export default function CallFlowManager() {
+  const [twilioNumbers, setTwilioNumbers] = useState<TwilioNumber[]>([]);
   const [flows, setFlows] = useState<CallFlow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [showFlowEditor, setShowFlowEditor] = useState(false);
   const [editingFlow, setEditingFlow] = useState<CallFlow | null>(null);
+  const [selectedNumberId, setSelectedNumberId] = useState<string>("");
   const [flowName, setFlowName] = useState("");
   const [selectedVoice, setSelectedVoice] = useState("alice");
   const [flowBlocks, setFlowBlocks] = useState<FlowBlock[]>([]);
@@ -346,35 +258,47 @@ export default function CallFlowManager({
   const { toast } = useToast();
 
   useEffect(() => {
-    fetchCallFlows();
-  }, [numberId]);
+    fetchData();
+  }, []);
 
-  const fetchCallFlows = async () => {
+  const fetchData = async () => {
     if (!user) return;
 
     try {
-      const { data, error } = await supabase.functions.invoke(
-        "supabase-functions-manage-call-flows",
-        {
-          body: {
-            action: "list",
-            userId: user.id,
-            twilioNumberId: numberId,
-          },
-        },
-      );
+      // Fetch Twilio numbers
+      const { data: numbersData, error: numbersError } = await supabase
+        .from("twilio_numbers")
+        .select("*")
+        .eq("user_id", user.id)
+        .eq("status", "active");
 
-      if (error) {
-        toast({
-          title: "Error",
-          description: "Failed to load call flows.",
-          variant: "destructive",
-        });
+      if (numbersError) {
+        console.error("Error fetching numbers:", numbersError);
       } else {
-        setFlows(data.flows || []);
+        setTwilioNumbers(numbersData || []);
+      }
+
+      // Fetch call flows
+      const { data: flowsData, error: flowsError } = await supabase
+        .from("call_flows")
+        .select(
+          `
+          *,
+          twilio_numbers(
+            phone_number,
+            friendly_name
+          )
+        `,
+        )
+        .eq("user_id", user.id);
+
+      if (flowsError) {
+        console.error("Error fetching flows:", flowsError);
+      } else {
+        setFlows(flowsData || []);
       }
     } catch (error) {
-      console.error("Error fetching call flows:", error);
+      console.error("Error fetching data:", error);
     } finally {
       setIsLoading(false);
     }
@@ -386,6 +310,7 @@ export default function CallFlowManager({
     setFlowBlocks([]);
     setSelectedBlock(null);
     setEditingFlow(null);
+    setSelectedNumberId("");
   };
 
   const handleCreateFlow = () => {
@@ -397,9 +322,9 @@ export default function CallFlowManager({
     setEditingFlow(flow);
     setFlowName(flow.flow_name);
     setSelectedVoice(flow.flow_config.voice || "alice");
+    setSelectedNumberId(flow.twilio_number_id || "");
 
     // Convert existing flow config to blocks
-    const blocks: FlowBlock[] = [];
     if (flow.flow_config.blocks) {
       setFlowBlocks(flow.flow_config.blocks);
     } else {
@@ -517,16 +442,13 @@ export default function CallFlowManager({
   const playVoiceDemo = async (voice: string) => {
     setIsPlayingVoice(voice);
 
-    // Simulate voice playback
     const demoText =
       "Hello! This is how I sound. Thank you for choosing our service.";
 
     try {
-      // Use Web Speech API if available
       if ("speechSynthesis" in window) {
         const utterance = new SpeechSynthesisUtterance(demoText);
 
-        // Map Twilio voices to browser voices
         const voiceMap: { [key: string]: string } = {
           alice: "female",
           woman: "female",
@@ -564,7 +486,6 @@ export default function CallFlowManager({
 
         speechSynthesis.speak(utterance);
       } else {
-        // Fallback - just show a message
         toast({
           title: `${voice} Voice Demo`,
           description: `"${demoText}"`,
@@ -582,10 +503,10 @@ export default function CallFlowManager({
   };
 
   const handleSaveFlow = async () => {
-    if (!user || !flowName.trim()) {
+    if (!user || !flowName.trim() || !selectedNumberId) {
       toast({
         title: "Validation Error",
-        description: "Please provide a flow name.",
+        description: "Please provide a flow name and select a phone number.",
         variant: "destructive",
       });
       return;
@@ -606,52 +527,68 @@ export default function CallFlowManager({
       const flowConfig = {
         voice: selectedVoice,
         blocks: flowBlocks,
-        version: "2.0", // Mark as new format
+        version: "2.0",
       };
 
       const flowData = {
-        name: flowName,
-        type: "advanced",
-        config: flowConfig,
+        flow_name: flowName,
+        flow_config: flowConfig,
+        twilio_number_id: selectedNumberId,
+        user_id: user.id,
+        is_active: true,
       };
 
-      const action = editingFlow ? "update" : "create";
-      const body: any = {
-        action,
-        userId: user.id,
-        twilioNumberId: numberId,
-        flowData,
-      };
-
+      let result;
       if (editingFlow) {
-        body.flowId = editingFlow.id;
+        result = await supabase
+          .from("call_flows")
+          .update(flowData)
+          .eq("id", editingFlow.id)
+          .select();
+      } else {
+        result = await supabase.from("call_flows").insert([flowData]).select();
       }
 
-      const { data, error } = await supabase.functions.invoke(
-        "supabase-functions-manage-call-flows",
-        { body },
-      );
+      if (result.error) {
+        throw result.error;
+      }
 
-      if (error) {
+      // Update Twilio webhook URLs
+      const { data: webhookData, error: webhookError } =
+        await supabase.functions.invoke(
+          "supabase-functions-manage-call-flows",
+          {
+            body: {
+              action: "update_webhooks",
+              userId: user.id,
+              twilioNumberId: selectedNumberId,
+            },
+          },
+        );
+
+      if (webhookError) {
+        console.error("Webhook update error:", webhookError);
         toast({
-          title: "Error",
-          description: `Failed to ${action} call flow.`,
+          title: "Warning",
+          description:
+            "Flow saved but webhook configuration may need manual setup.",
           variant: "destructive",
         });
       } else {
         toast({
           title: "Success",
-          description: `Call flow ${action}d successfully!`,
+          description: `Call flow ${editingFlow ? "updated" : "created"} successfully! Twilio webhooks configured.`,
         });
-        setShowFlowEditor(false);
-        resetEditor();
-        await fetchCallFlows();
       }
+
+      setShowFlowEditor(false);
+      resetEditor();
+      await fetchData();
     } catch (error) {
       console.error("Error saving call flow:", error);
       toast({
         title: "Error",
-        description: "An unexpected error occurred.",
+        description: "Failed to save call flow. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -663,32 +600,28 @@ export default function CallFlowManager({
     if (!user) return;
 
     try {
-      const { error } = await supabase.functions.invoke(
-        "supabase-functions-manage-call-flows",
-        {
-          body: {
-            action: "delete",
-            userId: user.id,
-            flowId,
-          },
-        },
-      );
+      const { error } = await supabase
+        .from("call_flows")
+        .delete()
+        .eq("id", flowId)
+        .eq("user_id", user.id);
 
       if (error) {
-        toast({
-          title: "Error",
-          description: "Failed to delete call flow.",
-          variant: "destructive",
-        });
-      } else {
-        toast({
-          title: "Success",
-          description: "Call flow deleted successfully!",
-        });
-        await fetchCallFlows();
+        throw error;
       }
+
+      toast({
+        title: "Success",
+        description: "Call flow deleted successfully!",
+      });
+      await fetchData();
     } catch (error) {
       console.error("Error deleting call flow:", error);
+      toast({
+        title: "Error",
+        description: "Failed to delete call flow.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -699,32 +632,6 @@ export default function CallFlowManager({
       return `+1 (${number.slice(0, 3)}) ${number.slice(3, 6)}-${number.slice(6)}`;
     }
     return phoneNumber;
-  };
-
-  const getFlowTypeIcon = (type: string) => {
-    switch (type) {
-      case "greeting":
-        return <MessageSquare className="h-4 w-4" />;
-      case "menu":
-        return <Settings className="h-4 w-4" />;
-      case "forward":
-        return <PhoneForwarded className="h-4 w-4" />;
-      case "voicemail":
-        return <Mic className="h-4 w-4" />;
-      case "advanced":
-        return <Zap className="h-4 w-4" />;
-      default:
-        return <Phone className="h-4 w-4" />;
-    }
-  };
-
-  const getFlowTypeLabel = (config: any) => {
-    if (config.version === "2.0" || config.blocks) return "Advanced Flow";
-    if (config.greeting) return "Greeting";
-    if (config.menu) return "Menu";
-    if (config.forward) return "Forward";
-    if (config.voicemail) return "Voicemail";
-    return "Unknown";
   };
 
   if (isLoading) {
@@ -745,6 +652,43 @@ export default function CallFlowManager({
     );
   }
 
+  if (twilioNumbers.length === 0) {
+    return (
+      <Card className="bg-white">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Settings className="h-5 w-5" />
+            Call Flow Manager
+          </CardTitle>
+          <CardDescription>
+            Create and manage call flows for your phone numbers
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="text-center py-12">
+            <div className="bg-gradient-to-br from-blue-50 to-purple-50 rounded-2xl p-8 border border-blue-100">
+              <Phone className="h-16 w-16 text-blue-500 mx-auto mb-4" />
+              <h3 className="text-xl font-bold text-gray-900 mb-2">
+                📞 No Phone Numbers Yet
+              </h3>
+              <p className="text-gray-600 mb-6 max-w-md mx-auto">
+                You need to purchase a phone number first before creating call
+                flows. Go to the "Select Number" tab to get started.
+              </p>
+              <Button
+                onClick={() => window.location.reload()}
+                className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
+              >
+                <Phone className="h-4 w-4 mr-2" />
+                Get Phone Number
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <>
       <Card className="bg-white">
@@ -753,25 +697,20 @@ export default function CallFlowManager({
             <div>
               <CardTitle className="flex items-center gap-2">
                 <Settings className="h-5 w-5" />
-                Interactive Call Flow Editor
+                Call Flow Manager
               </CardTitle>
               <CardDescription>
-                Design custom call flows for {formatPhoneNumber(phoneNumber)}{" "}
-                with drag-and-drop blocks
+                Design custom call flows for your phone numbers with
+                drag-and-drop blocks
               </CardDescription>
             </div>
-            <div className="flex gap-2">
-              <Button
-                onClick={handleCreateFlow}
-                className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
-              >
-                <Wand2 className="h-4 w-4 mr-2" />
-                Create Flow
-              </Button>
-              <Button variant="outline" onClick={onClose}>
-                Close
-              </Button>
-            </div>
+            <Button
+              onClick={handleCreateFlow}
+              className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
+            >
+              <Wand2 className="h-4 w-4 mr-2" />
+              Create Flow
+            </Button>
           </div>
         </CardHeader>
         <CardContent>
@@ -787,7 +726,7 @@ export default function CallFlowManager({
                   editor! Choose from presets or build custom flows with endless
                   possibilities.
                 </p>
-                <div className="flex flex-wrap justify-center gap-2 text-sm text-gray-500">
+                <div className="flex flex-wrap justify-center gap-2 text-sm text-gray-500 mb-4">
                   <Badge variant="outline">🎯 Drag & Drop</Badge>
                   <Badge variant="outline">🎵 Voice Demos</Badge>
                   <Badge variant="outline">📞 Live Preview</Badge>
@@ -805,9 +744,7 @@ export default function CallFlowManager({
                   <div className="flex-1">
                     <div className="flex items-center gap-3 mb-3">
                       <div className="p-2 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 text-white">
-                        {getFlowTypeIcon(
-                          getFlowTypeLabel(flow.flow_config).toLowerCase(),
-                        )}
+                        <Zap className="h-4 w-4" />
                       </div>
                       <div>
                         <div className="font-bold text-lg text-gray-900 group-hover:text-blue-900">
@@ -820,7 +757,10 @@ export default function CallFlowManager({
                             </Badge>
                           )}
                           <Badge variant="outline" className="text-xs">
-                            {getFlowTypeLabel(flow.flow_config)}
+                            📞{" "}
+                            {formatPhoneNumber(
+                              flow.twilio_numbers?.phone_number || "",
+                            )}
                           </Badge>
                           {flow.flow_config.voice && (
                             <Badge variant="outline" className="text-xs">
@@ -836,19 +776,7 @@ export default function CallFlowManager({
                           📦 {flow.flow_config.blocks.length} interactive blocks
                         </span>
                       ) : (
-                        <>
-                          {flow.flow_config.greeting && (
-                            <span className="mr-4">
-                              💬 "{flow.flow_config.greeting.substring(0, 50)}
-                              ..."
-                            </span>
-                          )}
-                          {flow.flow_config.forward && (
-                            <span className="mr-4">
-                              📞 Forward to: {flow.flow_config.forward.number}
-                            </span>
-                          )}
-                        </>
+                        <span>Legacy flow configuration</span>
                       )}
                     </div>
                   </div>
@@ -896,8 +824,7 @@ export default function CallFlowManager({
               {editingFlow ? "Edit Call Flow" : "Create Call Flow"}
             </DialogTitle>
             <DialogDescription>
-              Design your interactive call flow for{" "}
-              {formatPhoneNumber(phoneNumber)}
+              Design your interactive call flow with drag-and-drop blocks
             </DialogDescription>
           </DialogHeader>
 
@@ -914,6 +841,26 @@ export default function CallFlowManager({
                     value={flowName}
                     onChange={(e) => setFlowName(e.target.value)}
                   />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Phone Number</Label>
+                  <Select
+                    value={selectedNumberId}
+                    onValueChange={setSelectedNumberId}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a phone number" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {twilioNumbers.map((number) => (
+                        <SelectItem key={number.id} value={number.id}>
+                          {formatPhoneNumber(number.phone_number)}
+                          {number.friendly_name && ` (${number.friendly_name})`}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 {/* Voice Selection with Demos */}
@@ -1393,42 +1340,6 @@ export default function CallFlowManager({
                         }
                         placeholder="https://example.com/audio.mp3"
                       />
-                    </div>
-                  )}
-
-                  {selectedBlock.type === "sms" && (
-                    <div className="space-y-4">
-                      <div className="space-y-2">
-                        <Label>SMS Message</Label>
-                        <Textarea
-                          value={selectedBlock.config.message || ""}
-                          onChange={(e) =>
-                            updateBlock(selectedBlock.id, {
-                              config: {
-                                ...selectedBlock.config,
-                                message: e.target.value,
-                              },
-                            })
-                          }
-                          placeholder="Thank you for calling!"
-                          rows={3}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Send To (optional)</Label>
-                        <Input
-                          value={selectedBlock.config.to || ""}
-                          onChange={(e) =>
-                            updateBlock(selectedBlock.id, {
-                              config: {
-                                ...selectedBlock.config,
-                                to: e.target.value,
-                              },
-                            })
-                          }
-                          placeholder="+1234567890 or leave empty for caller"
-                        />
-                      </div>
                     </div>
                   )}
                 </div>

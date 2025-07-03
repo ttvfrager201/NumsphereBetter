@@ -119,6 +119,91 @@ export type Database = {
           },
         ]
       }
+      call_logs: {
+        Row: {
+          call_duration: number | null
+          call_minutes: number | null
+          call_sid: string
+          call_status: string | null
+          created_at: string | null
+          direction: string
+          ended_at: string | null
+          flow_id: string | null
+          from_number: string
+          id: string
+          metadata: Json | null
+          recording_url: string | null
+          started_at: string | null
+          to_number: string
+          transcription: string | null
+          twilio_number_id: string | null
+          updated_at: string | null
+          user_id: string | null
+        }
+        Insert: {
+          call_duration?: number | null
+          call_minutes?: number | null
+          call_sid: string
+          call_status?: string | null
+          created_at?: string | null
+          direction: string
+          ended_at?: string | null
+          flow_id?: string | null
+          from_number: string
+          id?: string
+          metadata?: Json | null
+          recording_url?: string | null
+          started_at?: string | null
+          to_number: string
+          transcription?: string | null
+          twilio_number_id?: string | null
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          call_duration?: number | null
+          call_minutes?: number | null
+          call_sid?: string
+          call_status?: string | null
+          created_at?: string | null
+          direction?: string
+          ended_at?: string | null
+          flow_id?: string | null
+          from_number?: string
+          id?: string
+          metadata?: Json | null
+          recording_url?: string | null
+          started_at?: string | null
+          to_number?: string
+          transcription?: string | null
+          twilio_number_id?: string | null
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "call_logs_flow_id_fkey"
+            columns: ["flow_id"]
+            isOneToOne: false
+            referencedRelation: "call_flows"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "call_logs_twilio_number_id_fkey"
+            columns: ["twilio_number_id"]
+            isOneToOne: false
+            referencedRelation: "twilio_numbers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "call_logs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       email_rate_limits: {
         Row: {
           attempt_count: number | null
@@ -627,6 +712,17 @@ export type Database = {
       detect_payment_anomalies: {
         Args: { p_user_id: string; p_session_id?: string }
         Returns: Json
+      }
+      get_call_analytics: {
+        Args: { p_user_id: string; p_start_date?: string; p_end_date?: string }
+        Returns: {
+          total_calls: number
+          total_minutes: number
+          inbound_calls: number
+          outbound_calls: number
+          average_duration: number
+          calls_by_day: Json
+        }[]
       }
       log_payment_security_event: {
         Args: {
