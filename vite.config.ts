@@ -34,21 +34,20 @@ export default defineConfig({
     },
   },
   server: {
-    host: "0.0.0.0", // 👈 Key: listen on all interfaces
-    port: 5173, // 👈 Force 5173
-    strictPort: true, // 👈 Fail if 5173 is taken (good for debugging)
-    allowedHosts: process.env.TEMPO === "true" ? true : undefined,
+    host: "0.0.0.0",
+    port: 5173,
+    strictPort: false,
+    // @ts-ignore
+    allowedHosts: true,
     hmr: {
-      protocol: "ws",
-      host: "0.0.0.0",
       port: 5173,
+      host: "0.0.0.0",
     },
     watch: {
       usePolling: true,
       interval: 100,
     },
   },
-
   build: {
     rollupOptions: {
       output: {

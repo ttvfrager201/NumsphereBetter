@@ -20,7 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
-import { Phone, Plus, MapPin, Clock } from "lucide-react";
+import { Phone, Plus, Search, MapPin, Clock } from "lucide-react";
 import { useAuth } from "../../../supabase/auth";
 import { supabase } from "../../../supabase/supabase";
 import { useToast } from "@/components/ui/use-toast";
@@ -61,91 +61,22 @@ export default function TwilioNumberManager() {
   const [isLoadingAvailable, setIsLoadingAvailable] = useState(false);
   const [isPurchasing, setPurchasing] = useState(false);
   const [showNumberDialog, setShowNumberDialog] = useState(false);
+  const [areaCode, setAreaCode] = useState("");
   const [selectedNumber, setSelectedNumber] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(0);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
+  const [lastSearchAreaCode, setLastSearchAreaCode] = useState("");
   const { user } = useAuth();
   const { toast } = useToast();
 
-  // Fetch user's existing numbers - OPTIMIZED to prevent excessive calls
+  // Fetch user's existing numbers
   useEffect(() => {
-    let isMounted = true;
-    let fetchInProgress = false;
-
-    const fetchNumbers = async () => {
-      if (!user?.id || fetchInProgress) return;
-
-      fetchInProgress = true;
-
-      // Check cache first
-      const cacheKey = `twilio_numbers_${user.id}`;
-      const cachedData = localStorage.getItem(cacheKey);
-
-      if (cachedData) {
-        try {
-          const cached = JSON.parse(cachedData);
-          const cacheAge = Date.now() - cached.timestamp;
-          // Use cache if less than 2 minutes old
-          if (cacheAge < 2 * 60 * 1000) {
-            if (isMounted) {
-              setUserNumbers(cached.numbers || []);
-              setIsLoading(false);
-            }
-            fetchInProgress = false;
-            return;
-          }
-        } catch (e) {
-          localStorage.removeItem(cacheKey);
-        }
-      }
-
-      try {
-        const { data, error } = await supabase
-          .from("twilio_numbers")
-          .select("*")
-          .eq("user_id", user.id)
-          .order("created_at", { ascending: false });
-
-        if (isMounted) {
-          if (error) {
-            console.error("Error loading phone numbers:", error);
-            // Try to use cached data as fallback
-            if (cachedData) {
-              try {
-                const cached = JSON.parse(cachedData);
-                setUserNumbers(cached.numbers || []);
-              } catch (e) {}
-            }
-          } else {
-            setUserNumbers(data || []);
-            // Cache the results
-            localStorage.setItem(
-              cacheKey,
-              JSON.stringify({
-                numbers: data || [],
-                timestamp: Date.now(),
-              }),
-            );
-          }
-          setIsLoading(false);
-        }
-      } catch (error) {
-        console.error("Exception loading phone numbers:", error);
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      } finally {
-        fetchInProgress = false;
-      }
-    };
-
-    fetchNumbers();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [user?.id]); // Only depend on user.id
+    fetchUserNumbers();
+  }, [user]);
 
   const fetchUserNumbers = async () => {
-    if (!user?.id) return;
+    if (!user) return;
 
     try {
       const { data, error } = await supabase
@@ -155,25 +86,21 @@ export default function TwilioNumberManager() {
         .order("created_at", { ascending: false });
 
       if (error) {
-        console.error("Error fetching user numbers:", error);
+        toast({
+          title: "Error",
+          description: "Failed to load your phone numbers.",
+          variant: "destructive",
+        });
       } else {
         setUserNumbers(data || []);
-        // Update cache
-        const cacheKey = `twilio_numbers_${user.id}`;
-        localStorage.setItem(
-          cacheKey,
-          JSON.stringify({
-            numbers: data || [],
-            timestamp: Date.now(),
-          }),
-        );
       }
     } catch (error) {
-      console.error("Error fetching user numbers:", error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const fetchAvailableNumbers = async () => {
+  const fetchAvailableNumbers = async (isLoadMore = false) => {
     if (!user) {
       toast({
         title: "Authentication required",
@@ -183,51 +110,40 @@ export default function TwilioNumberManager() {
       return;
     }
 
-    // Prevent multiple simultaneous requests
-    if (isLoadingAvailable) {
-      return;
+    // Check if this is a new search (different area code or first search)
+    const isNewSearch =
+      !isLoadMore && (areaCode !== lastSearchAreaCode || !hasSearched);
+
+    if (isLoadMore) {
+      setIsLoadingMore(true);
+    } else {
+      setIsLoadingAvailable(true);
+      // Reset everything for a new search
+      if (isNewSearch) {
+        setCurrentPage(0);
+        setAvailableNumbers([]);
+        setLastSearchAreaCode(areaCode);
+      }
+      setHasSearched(true);
     }
 
-    setIsLoadingAvailable(true);
-    setAvailableNumbers([]);
-
     try {
-      const payload = {
-        country: "US",
-        limit: 30,
-        offset: 0,
-      };
-
-      console.log(
-        "[TwilioNumberManager] Fetching random numbers from all states",
-      );
-
       const { data, error } = await supabase.functions.invoke(
-        "get-twilio-numbers",
+        "supabase-functions-get-twilio-numbers",
         {
-          body: JSON.stringify(payload),
-          headers: {
-            "Content-Type": "application/json",
+          body: {
+            country: "US",
+            areaCode: areaCode || undefined,
+            limit: 30,
+            offset: isLoadMore ? (currentPage + 1) * 30 : 0,
           },
         },
       );
 
       if (error) {
-        console.error("Error loading available numbers:", error);
         toast({
           title: "Error",
-          description: `Failed to load available numbers: ${error.message || "Please try again."}`,
-          variant: "destructive",
-        });
-        return;
-      }
-
-      if (!data) {
-        console.error("No data received from Twilio API");
-        toast({
-          title: "Error",
-          description:
-            "No response from phone number service. Please try again.",
+          description: "Failed to load available numbers. Please try again.",
           variant: "destructive",
         });
         return;
@@ -240,22 +156,34 @@ export default function TwilioNumberManager() {
         }),
       );
 
-      setAvailableNumbers(numbersWithPricing);
+      if (isLoadMore) {
+        setAvailableNumbers((prev) => [...prev, ...numbersWithPricing]);
+        setCurrentPage((prev) => prev + 1);
+      } else {
+        // For new searches, replace the entire list
+        setAvailableNumbers(numbersWithPricing);
+        setCurrentPage(0);
+      }
 
-      if (numbersWithPricing.length > 0) {
-        console.log(
-          `[TwilioNumberManager] Found ${numbersWithPricing.length} numbers from various states`,
-        );
+      if (numbersWithPricing.length === 0 && areaCode && !isLoadMore) {
+        toast({
+          title: "No Numbers Available",
+          description: `No phone numbers available for area code ${areaCode}. Try a different area code or search without one.`,
+          variant: "destructive",
+        });
       }
     } catch (error) {
-      console.error("Exception loading available numbers:", error);
       toast({
         title: "Error",
         description: "Failed to load available numbers. Please try again.",
         variant: "destructive",
       });
     } finally {
-      setIsLoadingAvailable(false);
+      if (isLoadMore) {
+        setIsLoadingMore(false);
+      } else {
+        setIsLoadingAvailable(false);
+      }
     }
   };
 
@@ -298,7 +226,7 @@ export default function TwilioNumberManager() {
       );
 
       const { data, error } = await supabase.functions.invoke(
-        "purchase-twilio-number",
+        "supabase-functions-purchase-twilio-number",
         {
           body: {
             phoneNumber,
@@ -355,6 +283,8 @@ export default function TwilioNumberManager() {
 
         // Reset search state
         setAvailableNumbers([]);
+        setHasSearched(false);
+        setAreaCode("");
       } else {
         toast({
           title: "Purchase incomplete",
@@ -408,9 +338,10 @@ export default function TwilioNumberManager() {
     if (!open) {
       // Reset search state when dialog closes
       setAvailableNumbers([]);
-    } else {
-      // Auto-load numbers when dialog opens
-      fetchAvailableNumbers();
+      setHasSearched(false);
+      setCurrentPage(0);
+      setLastSearchAreaCode("");
+      setAreaCode("");
     }
   };
 
@@ -456,11 +387,43 @@ export default function TwilioNumberManager() {
               <DialogHeader>
                 <DialogTitle>Select Your Phone Number</DialogTitle>
                 <DialogDescription>
-                  Choose from available phone numbers across all US states
+                  Select a phone number from available options
                 </DialogDescription>
               </DialogHeader>
 
               <div className="space-y-4">
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <Label htmlFor="areaCode">Area Code (Optional)</Label>
+                    <Input
+                      id="areaCode"
+                      placeholder="e.g., 415, 212, 555"
+                      value={areaCode}
+                      onChange={(e) => setAreaCode(e.target.value)}
+                      maxLength={3}
+                      onKeyPress={(e) => {
+                        if (e.key === "Enter") {
+                          fetchAvailableNumbers();
+                        }
+                      }}
+                    />
+                  </div>
+                  <div className="flex items-end">
+                    <Button
+                      onClick={() => fetchAvailableNumbers(false)}
+                      disabled={isLoadingAvailable}
+                      className="bg-green-600 hover:bg-green-700"
+                    >
+                      {isLoadingAvailable ? (
+                        <LoadingSpinner size="sm" className="mr-2" />
+                      ) : (
+                        <Search className="h-4 w-4 mr-2" />
+                      )}
+                      Search
+                    </Button>
+                  </div>
+                </div>
+
                 {isLoadingAvailable && (
                   <div className="space-y-4">
                     <div className="flex items-center justify-center py-12 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg border border-blue-100">
@@ -489,27 +452,37 @@ export default function TwilioNumberManager() {
                     <div className="flex items-center justify-between">
                       <h4 className="font-medium text-gray-900">
                         Available Numbers ({availableNumbers.length})
+                        {areaCode && (
+                          <span className="text-sm text-gray-500 ml-2">
+                            - Area Code: {areaCode}
+                          </span>
+                        )}
                       </h4>
-                      <Button
-                        onClick={fetchAvailableNumbers}
-                        variant="outline"
-                        size="sm"
-                        disabled={isLoadingAvailable}
-                      >
-                        Refresh
-                      </Button>
                     </div>
                     <div className="text-sm text-gray-600 mb-3 p-3 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg border border-blue-100">
                       <div className="flex items-center gap-2">
                         <span className="text-lg">🎯</span>
                         <span className="font-medium">Pro Tip:</span>
                         <span>
-                          Numbers from various US states - Select to claim
-                          yours!
+                          Press Select to claim your perfect phone number!
                         </span>
                       </div>
                     </div>
-                    <div className="max-h-96 overflow-y-auto space-y-2">
+                    <div
+                      className="max-h-96 overflow-y-auto space-y-2"
+                      onScroll={(e) => {
+                        const { scrollTop, scrollHeight, clientHeight } =
+                          e.currentTarget;
+                        if (
+                          scrollHeight - scrollTop - clientHeight < 50 &&
+                          !isLoadingMore &&
+                          availableNumbers.length > 0 &&
+                          availableNumbers.length % 30 === 0
+                        ) {
+                          fetchAvailableNumbers(true);
+                        }
+                      }}
+                    >
                       {availableNumbers.map((number, index) => (
                         <div
                           key={`${number.phone_number}-${index}`}
@@ -574,32 +547,41 @@ export default function TwilioNumberManager() {
                           </Button>
                         </div>
                       ))}
+                      {isLoadingMore && (
+                        <div className="flex items-center justify-center py-6 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg">
+                          <div className="flex items-center gap-3">
+                            <div className="relative">
+                              <div className="h-8 w-8 rounded-full border-4 border-blue-100 border-t-blue-500 animate-spin" />
+                              <div className="absolute inset-0 flex items-center justify-center">
+                                <div className="h-3 w-3 rounded-full bg-blue-500/20 animate-pulse" />
+                              </div>
+                            </div>
+                            <span className="text-sm font-medium text-gray-700">
+                              🔍 Finding more amazing numbers for you...
+                            </span>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
 
-                {availableNumbers.length === 0 && !isLoadingAvailable && (
-                  <div className="text-center py-8 bg-gradient-to-r from-yellow-50 to-orange-50 rounded-lg border border-yellow-200">
-                    <div className="flex flex-col items-center gap-3">
-                      <span className="text-3xl">📞</span>
-                      <h4 className="font-semibold text-gray-900">
-                        No Numbers Available
-                      </h4>
-                      <p className="text-gray-600 text-center max-w-md">
-                        No phone numbers are currently available. Please try
-                        again later.
-                      </p>
-                      <Button
-                        onClick={fetchAvailableNumbers}
-                        variant="outline"
-                        size="sm"
-                        className="mt-2"
-                      >
-                        Try Again
-                      </Button>
+                {availableNumbers.length === 0 &&
+                  !isLoadingAvailable &&
+                  !hasSearched && (
+                    <div className="text-center py-8 text-gray-500">
+                      Click "Search" to find available phone numbers
                     </div>
-                  </div>
-                )}
+                  )}
+
+                {availableNumbers.length === 0 &&
+                  !isLoadingAvailable &&
+                  hasSearched && (
+                    <div className="text-center py-8 text-gray-500">
+                      No numbers found. Try a different area code or search
+                      without one.
+                    </div>
+                  )}
               </div>
             </DialogContent>
           </Dialog>

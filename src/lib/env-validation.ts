@@ -26,12 +26,28 @@ export function validateClientEnvironment(): EnvConfig {
 
   // Check for missing variables
   Object.entries(requiredVars).forEach(([key, value]) => {
-    if (!value) {
+    if (!value || value === "undefined") {
       missing.push(key);
     }
   });
 
   if (missing.length > 0) {
+    // In development, provide more helpful error information
+    if (import.meta.env.DEV) {
+      console.warn(
+        `Missing environment variables: ${missing.join(", ")}. ` +
+          "These should be set in your project settings.",
+      );
+      // Return default values for development to prevent blocking
+      return {
+        VITE_SUPABASE_URL:
+          requiredVars.VITE_SUPABASE_URL || "https://placeholder.supabase.co",
+        VITE_SUPABASE_ANON_KEY:
+          requiredVars.VITE_SUPABASE_ANON_KEY ||
+          "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.placeholder.placeholder",
+      };
+    }
+
     throw new EnvironmentError(
       `Missing required environment variables: ${missing.join(", ")}. ` +
         "Please check your project settings in Tempo.",
@@ -186,7 +202,14 @@ export function validateBrowserSecurity(): {
 if (typeof window !== "undefined") {
   // Validate environment in browser context
   try {
-    validateClientEnvironment();
+    // Only validate if we're not in development or if variables are actually available
+    if (
+      !import.meta.env.DEV ||
+      (import.meta.env.VITE_SUPABASE_URL &&
+        import.meta.env.VITE_SUPABASE_ANON_KEY)
+    ) {
+      validateClientEnvironment();
+    }
 
     const browserCheck = validateBrowserSecurity();
     if (!browserCheck.secure) {
@@ -194,5 +217,11 @@ if (typeof window !== "undefined") {
     }
   } catch (error) {
     // Error handling is done in getEnvConfig
+    if (import.meta.env.DEV) {
+      console.warn(
+        "Environment validation skipped in development:",
+        error.message,
+      );
+    }
   }
 }

@@ -76,6 +76,190 @@ const useTheme = () => {
   return { theme, toggleTheme };
 };
 
+// Payment History Component
+const PaymentHistory = () => {
+  const { user } = useAuth();
+  const [payments, setPayments] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [customerPortalUrl, setCustomerPortalUrl] = useState<string | null>(
+    null,
+  );
+
+  useEffect(() => {
+    const fetchPaymentHistory = async () => {
+      if (!user) return;
+
+      try {
+        const { data } = await supabase.functions.invoke(
+          "supabase-functions-get-payment-history",
+          {
+            body: { userId: user.id },
+          },
+        );
+
+        if (data) {
+          setPayments(data.payments || []);
+          setCustomerPortalUrl(data.customerPortalUrl);
+        }
+      } catch (error) {
+        console.error("Payment history error:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchPaymentHistory();
+  }, [user]);
+
+  const formatAmount = (amount: number, currency: string) => {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: currency.toUpperCase(),
+    }).format(amount / 100);
+  };
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  };
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case "succeeded":
+        return <CheckCircle className="h-4 w-4 text-green-500" />;
+      case "failed":
+        return <XCircle className="h-4 w-4 text-red-500" />;
+      case "pending":
+        return <AlertCircle className="h-4 w-4 text-yellow-500" />;
+      default:
+        return <AlertCircle className="h-4 w-4 text-gray-500" />;
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "succeeded":
+        return "text-green-600 bg-green-50";
+      case "failed":
+        return "text-red-600 bg-red-50";
+      case "pending":
+        return "text-yellow-600 bg-yellow-50";
+      default:
+        return "text-gray-600 bg-gray-50";
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div className="text-center py-8">
+          <h2 className="text-2xl font-bold text-gray-900 mb-4">
+            Payment History
+          </h2>
+          <p className="text-gray-600">Loading payment history...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="text-center py-4">
+        <h2 className="text-2xl font-bold text-gray-900 mb-2">
+          Payment History
+        </h2>
+        <p className="text-gray-600">
+          View all your payment transactions and billing history.
+        </p>
+      </div>
+
+      <div className="space-y-6">
+        {customerPortalUrl && (
+          <Card className="bg-blue-50 border-blue-200">
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-medium text-blue-900">
+                    Manage Your Subscription
+                  </h3>
+                  <p className="text-sm text-blue-700 mt-1">
+                    Update payment methods, download invoices, and manage
+                    billing
+                  </p>
+                </div>
+                <Button
+                  onClick={() => window.open(customerPortalUrl, "_blank")}
+                  className="bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  <CreditCard className="h-4 w-4 mr-2" />
+                  Manage Billing
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Transaction History</CardTitle>
+            <CardDescription>
+              All payments and billing transactions for your account
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {payments.length === 0 ? (
+              <div className="text-center py-8">
+                <CreditCard className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                <p className="text-gray-500 mb-2">No payment history found.</p>
+                <p className="text-sm text-gray-400">
+                  Your payment transactions will appear here once you make your
+                  first payment.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {payments.map((payment) => (
+                  <div
+                    key={payment.id}
+                    className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      {getStatusIcon(payment.status)}
+                      <div>
+                        <p className="font-medium text-gray-900">
+                          {payment.description || "Payment"}
+                        </p>
+                        <p className="text-sm text-gray-500">
+                          {formatDate(payment.created)} • ID:{" "}
+                          {payment.id.slice(-8)}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-semibold text-gray-900">
+                        {formatAmount(payment.amount, payment.currency)}
+                      </p>
+                      <span
+                        className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ${getStatusColor(payment.status)}`}
+                      >
+                        {payment.status.charAt(0).toUpperCase() +
+                          payment.status.slice(1)}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+};
+
 const Home = () => {
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState(() => {
@@ -95,7 +279,9 @@ const Home = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [subscriptionData, setSubscriptionData] = useState<any>(null);
-  const [loadingSubscriptionData, setLoadingSubscriptionData] = useState(true);
+  const [stripeData, setStripeData] = useState<any>(null);
+  const [loadingStripeData, setLoadingStripeData] = useState(true);
+  const [stripeSubscription, setStripeSubscription] = useState<any>(null);
   const { theme, toggleTheme } = useTheme();
 
   const [formData, setFormData] = useState({
@@ -111,129 +297,45 @@ const Home = () => {
   const { user, signOut, checkPaymentStatus } = useAuth();
   const { toast } = useToast();
 
-  // Fetch user profile and subscription data with aggressive caching
+  // Fetch user profile and subscription data
   useEffect(() => {
-    let isMounted = true;
-    let fetchInProgress = false;
-
     const fetchUserData = async () => {
-      if (!user?.id || fetchInProgress) return;
-
-      fetchInProgress = true;
+      if (!user) return;
 
       try {
-        // Check cache first with longer cache time
-        const cacheKey = `dashboard_data_${user.id}`;
-        const cachedData = localStorage.getItem(cacheKey);
+        // Fetch user profile
+        const { data: profileData } = await supabase
+          .from("users")
+          .select("full_name, avatar_url")
+          .eq("id", user.id)
+          .single();
 
-        if (cachedData) {
-          try {
-            const cached = JSON.parse(cachedData);
-            const cacheAge = Date.now() - cached.timestamp;
-            // Use cache if less than 30 minutes old (increased from 5)
-            if (cacheAge < 30 * 60 * 1000) {
-              if (isMounted) {
-                setUserProfile(cached.profile);
-                setSubscriptionData(cached.subscription);
-                setLoadingSubscriptionData(false);
-              }
-              fetchInProgress = false;
-              return;
-            }
-          } catch (e) {
-            localStorage.removeItem(cacheKey);
-          }
+        if (profileData) {
+          setUserProfile(profileData);
         }
 
-        // Throttle API calls - only fetch once per 5 minutes
-        const lastFetchKey = `last_dashboard_fetch_${user.id}`;
-        const lastFetch = localStorage.getItem(lastFetchKey);
-        const now = Date.now();
+        // Fetch subscription data - webhook managed
+        const { data: subData } = await supabase
+          .from("user_subscriptions")
+          .select(
+            "plan_id, status, created_at, stripe_customer_id, stripe_subscription_id",
+          )
+          .eq("user_id", user.id)
+          .eq("status", "active")
+          .maybeSingle();
 
-        if (lastFetch && now - parseInt(lastFetch) < 5 * 60 * 1000) {
-          // Use cached data if available, otherwise skip fetch
-          if (cachedData) {
-            try {
-              const cached = JSON.parse(cachedData);
-              if (isMounted) {
-                setUserProfile(cached.profile);
-                setSubscriptionData(cached.subscription);
-                setLoadingSubscriptionData(false);
-              }
-            } catch (e) {}
-          }
-          fetchInProgress = false;
-          return;
-        }
-
-        localStorage.setItem(lastFetchKey, now.toString());
-
-        // Only fetch subscription data, use user metadata for profile
-        try {
-          const { data: subscriptionResult, error: subError } = await supabase
-            .from("user_subscriptions")
-            .select(
-              "plan_id, status, created_at, stripe_customer_id, stripe_subscription_id",
-            )
-            .eq("user_id", user.id)
-            .eq("status", "active")
-            .not("stripe_subscription_id", "is", null)
-            .limit(1)
-            .maybeSingle();
-
-          if (isMounted) {
-            // Use user metadata instead of fetching from users table
-            const profileData = {
-              full_name: user.user_metadata?.full_name || null,
-              avatar_url: user.user_metadata?.avatar_url || null,
-            };
-
-            setUserProfile(profileData);
-
-            if (subscriptionResult) {
-              setSubscriptionData(subscriptionResult);
-            }
-
-            // Cache the results for longer
-            localStorage.setItem(
-              cacheKey,
-              JSON.stringify({
-                profile: profileData,
-                subscription: subscriptionResult,
-                timestamp: Date.now(),
-              }),
-            );
-          }
-        } catch (error) {
-          console.error("Failed to fetch subscription data:", error);
-          // Try to use any cached data as fallback
-          const fallbackCache = localStorage.getItem(cacheKey);
-          if (fallbackCache && isMounted) {
-            try {
-              const cached = JSON.parse(fallbackCache);
-              setUserProfile(cached.profile);
-              setSubscriptionData(cached.subscription);
-            } catch (e) {}
-          }
+        if (subData) {
+          setSubscriptionData(subData);
         }
       } catch (error) {
-        console.error("Error in fetchUserData:", error);
+        console.error("Error fetching user data:", error);
       } finally {
-        if (isMounted) {
-          setLoadingSubscriptionData(false);
-        }
-        fetchInProgress = false;
+        setLoadingStripeData(false);
       }
     };
 
-    // Debounce the fetch call
-    const timeoutId = setTimeout(fetchUserData, 100);
-
-    return () => {
-      isMounted = false;
-      clearTimeout(timeoutId);
-    };
-  }, [user?.id]); // Only depend on user.id
+    fetchUserData();
+  }, [user]);
 
   // Function to trigger loading state for demonstration
   const handleRefresh = () => {
@@ -244,56 +346,15 @@ const Home = () => {
     }, 2000);
   };
 
-  const handleSidebarClick = async (label: string) => {
+  const handleSidebarClick = (label: string) => {
     if (label === "Settings") {
       setIsSettingsOpen(true);
-    } else if (label === "Subscription & Billing") {
-      // Redirect to Stripe customer portal with enhanced error handling
-      try {
-        toast({
-          title: "Opening Billing Portal",
-          description: "Redirecting to secure billing portal...",
-        });
-
-        const { data, error } = await supabase.functions.invoke(
-          "create-customer-portal",
-          {
-            body: { userId: user?.id },
-            headers: {
-              "Content-Type": "application/json",
-            },
-          },
-        );
-
-        if (error) {
-          console.error("Billing portal error:", error);
-          toast({
-            title: "Error",
-            description: "Unable to access billing portal. Please try again.",
-            variant: "destructive",
-          });
-          return;
-        }
-
-        if (data?.url) {
-          // Open in same tab for better user experience
-          window.location.href = data.url;
-        } else {
-          toast({
-            title: "Billing Portal",
-            description:
-              "No billing information available. Complete your first payment to access billing details.",
-          });
-        }
-      } catch (error) {
-        console.error("Error accessing billing portal:", error);
-        toast({
-          title: "Error",
-          description:
-            "Unable to access billing portal. Please try again later.",
-          variant: "destructive",
-        });
-      }
+    } else if (label === "Change Plan") {
+      // Handle plan change - could redirect to plan selection or open a modal
+      toast({
+        title: "Plan Change",
+        description: "Plan change functionality will be available soon.",
+      });
     } else {
       setActiveTab(label);
     }
@@ -420,7 +481,7 @@ const Home = () => {
   const handleCancelSubscription = async () => {
     try {
       const { data, error } = await supabase.functions.invoke(
-        "cancel-subscription",
+        "supabase-functions-cancel-subscription",
         {
           body: { userId: user?.id },
         },
@@ -448,12 +509,8 @@ const Home = () => {
     }
   };
   return (
-    <div className="h-screen bg-[#f5f5f7] dark:bg-gray-900 transition-colors duration-200 overflow-hidden">
-      <TopNavigation
-        onSettingsClick={() => setIsSettingsOpen(true)}
-        theme={theme}
-        onThemeToggle={toggleTheme}
-      />
+    <div className="min-h-screen bg-[#f5f5f7] dark:bg-gray-900 transition-colors duration-200">
+      <TopNavigation onSettingsClick={() => setIsSettingsOpen(true)} />
       <div className="flex h-[calc(100vh-64px)] mt-16">
         <Sidebar
           activeItem={activeTab}
@@ -461,243 +518,196 @@ const Home = () => {
           isCollapsed={isSidebarCollapsed}
           onToggleCollapse={handleToggleSidebar}
         />
-        <main className="flex-1 bg-[#f5f5f7] dark:bg-gray-900 overflow-hidden">
-          <div className="h-full overflow-y-auto">
-            <div className="max-w-7xl mx-auto px-6 pt-4 pb-2 flex justify-between items-center">
-              <div></div>
-              <Button
-                onClick={handleRefresh}
-                className="bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white rounded-full px-4 h-9 shadow-sm transition-colors flex items-center gap-2"
-              >
-                <RefreshCw
-                  className={`h-4 w-4 ${loading ? "animate-spin" : ""}`}
-                />
-                {loading ? "Loading..." : "Refresh Dashboard"}
-              </Button>
-            </div>
-            <div
-              className={cn(
-                "max-w-7xl mx-auto p-6 space-y-8 pb-8",
-                "transition-all duration-300 ease-in-out",
-              )}
+        <main className="flex-1 overflow-auto hide-scrollbar">
+          <div className="container mx-auto px-6 pt-4 pb-2 flex justify-between items-center">
+            <Button
+              onClick={toggleTheme}
+              variant="outline"
+              size="icon"
+              className="rounded-full h-9 w-9 bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
             >
-              {/* Content based on active tab */}
-              {activeTab === "Home" && (
-                <div className="space-y-8">
-                  {/* Welcome Section */}
-                  <div className="text-center py-12 bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 rounded-2xl border border-blue-100 dark:border-blue-800">
-                    <h1 className="text-5xl font-bold text-gray-900 dark:text-gray-100 mb-4">
-                      Welcome to NumSphere! 👋
-                    </h1>
-                    <p className="text-xl text-gray-600 dark:text-gray-300 mb-2">
-                      Hello,{" "}
-                      {userProfile?.full_name ||
-                        user?.user_metadata?.full_name ||
-                        user?.email?.split("@")[0] ||
-                        "User"}
-                      !
-                    </p>
-                    <p className="text-gray-500 dark:text-gray-400">
-                      Manage your virtual phone numbers and call flows with ease
-                    </p>
-                  </div>
+              {theme === "light" ? (
+                <Moon className="h-4 w-4 text-gray-600 dark:text-gray-300" />
+              ) : (
+                <Sun className="h-4 w-4 text-gray-600 dark:text-gray-300" />
+              )}
+            </Button>
+            <Button
+              onClick={handleRefresh}
+              className="bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white rounded-full px-4 h-9 shadow-sm transition-colors flex items-center gap-2"
+            >
+              <RefreshCw
+                className={`h-4 w-4 ${loading ? "animate-spin" : ""}`}
+              />
+              {loading ? "Loading..." : "Refresh Dashboard"}
+            </Button>
+          </div>
+          <div
+            className={cn(
+              "container mx-auto p-6 space-y-8",
+              "transition-all duration-300 ease-in-out",
+            )}
+          >
+            {/* Content based on active tab */}
+            {activeTab === "Home" && (
+              <div className="space-y-8">
+                {/* Welcome Section */}
+                <div className="text-center py-12 bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 rounded-2xl border border-blue-100 dark:border-blue-800">
+                  <h1 className="text-5xl font-bold text-gray-900 dark:text-gray-100 mb-4">
+                    Welcome to NumSphere! 👋
+                  </h1>
+                  <p className="text-xl text-gray-600 dark:text-gray-300 mb-2">
+                    Hello,{" "}
+                    {userProfile?.full_name ||
+                      user?.user_metadata?.full_name ||
+                      user?.email?.split("@")[0] ||
+                      "User"}
+                    !
+                  </p>
+                  <p className="text-gray-500 dark:text-gray-400">
+                    Manage your virtual phone numbers and call flows with ease
+                  </p>
+                </div>
 
-                  {/* Dashboard Cards */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                    <Card className="bg-white dark:bg-gray-800 hover:shadow-lg transition-shadow border-0 shadow-sm">
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                          Subscription
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="flex items-center gap-2 mb-3">
-                          {subscriptionData?.status === "active" ? (
-                            <CheckCircle className="h-5 w-5 text-green-500" />
-                          ) : (
-                            <XCircle className="h-5 w-5 text-red-500" />
-                          )}
-                          <span className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-                            {subscriptionData?.plan_id
-                              ? `${subscriptionData.plan_id.charAt(0).toUpperCase() + subscriptionData.plan_id.slice(1)} Plan`
-                              : "No Plan"}
-                          </span>
-                        </div>
-                        <div className="space-y-2 text-sm">
-                          <div className="flex justify-between">
-                            <span className="text-gray-500 dark:text-gray-400">
-                              Status:
-                            </span>
-                            <span
-                              className={
-                                subscriptionData?.status === "active"
-                                  ? "text-green-600 font-medium"
-                                  : "text-red-600 font-medium"
-                              }
-                            >
-                              {subscriptionData?.status === "active"
-                                ? "Active"
-                                : "Inactive"}
-                            </span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-500 dark:text-gray-400">
-                              Amount:
-                            </span>
-                            <span className="font-medium text-gray-900 dark:text-gray-100">
-                              $29.99/month
-                            </span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-500 dark:text-gray-400">
-                              Next billing:
-                            </span>
-                            <span className="font-medium text-gray-900 dark:text-gray-100">
-                              {subscriptionData?.created_at
-                                ? new Date(
-                                    new Date(
-                                      subscriptionData.created_at,
-                                    ).getTime() +
-                                      30 * 24 * 60 * 60 * 1000,
-                                  ).toLocaleDateString("en-US", {
-                                    month: "short",
-                                    day: "numeric",
-                                    year: "numeric",
-                                  })
-                                : "N/A"}
-                            </span>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
+                {/* Dashboard Cards */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                  <Card className="bg-white dark:bg-gray-800 hover:shadow-lg transition-shadow">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                        Subscription Status
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex items-center gap-2">
+                        {subscriptionData?.status === "active" ? (
+                          <CheckCircle className="h-5 w-5 text-green-500" />
+                        ) : (
+                          <XCircle className="h-5 w-5 text-red-500" />
+                        )}
+                        <span className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                          {subscriptionData?.status === "active"
+                            ? "Active"
+                            : "Inactive"}
+                        </span>
+                      </div>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                        {subscriptionData?.plan_id
+                          ? `${subscriptionData.plan_id.charAt(0).toUpperCase() + subscriptionData.plan_id.slice(1)} Plan`
+                          : "No Plan"}
+                      </p>
+                    </CardContent>
+                  </Card>
 
-                    <Card className="bg-white dark:bg-gray-800 hover:shadow-lg transition-shadow border-0 shadow-sm">
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                          Phone Numbers
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="flex items-center gap-2">
-                          <span className="text-3xl font-bold text-gray-900 dark:text-gray-100">
-                            0
-                          </span>
-                        </div>
-                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                          Active numbers
-                        </p>
-                      </CardContent>
-                    </Card>
+                  <Card className="bg-white dark:bg-gray-800 hover:shadow-lg transition-shadow">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                        Phone Numbers
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex items-center gap-2">
+                        <span className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                          0
+                        </span>
+                      </div>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                        Active numbers
+                      </p>
+                    </CardContent>
+                  </Card>
 
-                    <Card className="bg-white dark:bg-gray-800 hover:shadow-lg transition-shadow border-0 shadow-sm">
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                          Minutes Used
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="flex items-center gap-2">
-                          <span className="text-3xl font-bold text-gray-900 dark:text-gray-100">
-                            0
-                          </span>
-                        </div>
-                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                          This month
-                        </p>
-                      </CardContent>
-                    </Card>
+                  <Card className="bg-white dark:bg-gray-800 hover:shadow-lg transition-shadow">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                        Minutes Used
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex items-center gap-2">
+                        <span className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                          0
+                        </span>
+                      </div>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                        This month
+                      </p>
+                    </CardContent>
+                  </Card>
 
-                    <Card className="bg-white dark:bg-gray-800 hover:shadow-lg transition-shadow border-0 shadow-sm">
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                          Call Flows
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="flex items-center gap-2">
-                          <span className="text-3xl font-bold text-gray-900 dark:text-gray-100">
-                            0
-                          </span>
-                        </div>
-                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                          Active flows
-                        </p>
-                      </CardContent>
-                    </Card>
-                  </div>
+                  <Card className="bg-white dark:bg-gray-800 hover:shadow-lg transition-shadow">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                        Call Flows
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex items-center gap-2">
+                        <span className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                          0
+                        </span>
+                      </div>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                        Active flows
+                      </p>
+                    </CardContent>
+                  </Card>
+                </div>
 
-                  {/* Quick Actions */}
-                  <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 border-0 shadow-sm">
-                    <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-6">
-                      Quick Actions
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <Button
-                        onClick={() => setActiveTab("Select Number")}
-                        className="h-20 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white rounded-xl flex flex-col items-center justify-center gap-2 shadow-lg hover:shadow-xl transition-all"
-                      >
-                        <span className="text-2xl">📞</span>
-                        <span className="font-medium">Get Phone Number</span>
-                      </Button>
-                      <Button
-                        onClick={() => setActiveTab("Call Flows")}
-                        variant="outline"
-                        className="h-20 rounded-xl flex flex-col items-center justify-center gap-2 border-2 hover:bg-gray-50 dark:hover:bg-gray-700 transition-all"
-                      >
-                        <span className="text-2xl">🔄</span>
-                        <span className="font-medium">Setup Call Flows</span>
-                      </Button>
-                      <Button
-                        onClick={() =>
-                          handleSidebarClick("Subscription & Billing")
-                        }
-                        variant="outline"
-                        className="h-20 rounded-xl flex flex-col items-center justify-center gap-2 border-2 hover:bg-gray-50 dark:hover:bg-gray-700 transition-all"
-                      >
-                        <span className="text-2xl">💳</span>
-                        <span className="font-medium">Manage Billing</span>
-                      </Button>
-                    </div>
+                {/* Quick Actions */}
+                <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 border border-gray-200 dark:border-gray-700">
+                  <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">
+                    Quick Actions
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <Button
+                      onClick={() => setActiveTab("Select Number")}
+                      className="h-16 bg-blue-600 hover:bg-blue-700 text-white rounded-xl flex flex-col items-center justify-center gap-2"
+                    >
+                      <span className="text-lg">📞</span>
+                      <span>Get Phone Number</span>
+                    </Button>
+                    <Button
+                      onClick={() => setActiveTab("Call Flows")}
+                      variant="outline"
+                      className="h-16 rounded-xl flex flex-col items-center justify-center gap-2"
+                    >
+                      <span className="text-lg">🔄</span>
+                      <span>Setup Call Flows</span>
+                    </Button>
+                    <Button
+                      onClick={() => setActiveTab("Payment History")}
+                      variant="outline"
+                      className="h-16 rounded-xl flex flex-col items-center justify-center gap-2"
+                    >
+                      <span className="text-lg">💳</span>
+                      <span>View Payments</span>
+                    </Button>
                   </div>
                 </div>
-              )}
+              </div>
+            )}
 
-              {activeTab === "Select Number" && (
-                <div className="space-y-6">
-                  <TwilioNumberManager />
-                </div>
-              )}
+            {activeTab === "Select Number" && (
+              <div className="space-y-6">
+                <TwilioNumberManager />
+              </div>
+            )}
 
-              {activeTab === "Call Flows" && (
-                <div className="text-center py-8">
-                  <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-4">
-                    Call Flows
-                  </h2>
-                  <p className="text-gray-600 dark:text-gray-300">
-                    Design and manage your custom call flows here.
-                  </p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
-                    Coming soon...
-                  </p>
-                </div>
-              )}
+            {activeTab === "Call Flows" && (
+              <div className="text-center py-8">
+                <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-4">
+                  Call Flows
+                </h2>
+                <p className="text-gray-600 dark:text-gray-300">
+                  Design and manage your custom call flows here.
+                </p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+                  Coming soon...
+                </p>
+              </div>
+            )}
 
-              {activeTab === "Subscription & Billing" && (
-                <div className="text-center py-8">
-                  <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-4">
-                    Subscription & Billing
-                  </h2>
-                  <p className="text-gray-600 dark:text-gray-300">
-                    Manage your subscription and billing through Stripe's secure
-                    portal.
-                  </p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
-                    Click "Subscription & Billing" in the sidebar to access your
-                    billing portal.
-                  </p>
-                </div>
-              )}
-            </div>
+            {activeTab === "Payment History" && <PaymentHistory />}
           </div>
         </main>
       </div>

@@ -21,40 +21,57 @@ import { Toaster } from "./components/ui/toaster";
 import { LoadingScreen, LoadingSpinner } from "./components/ui/loading-spinner";
 
 function PlanSelectionWrapper() {
-  const { hasCompletedPayment, loading, user } = useAuth();
+  const { hasCompletedPayment, loading, user, checkPaymentStatus } = useAuth();
   const navigate = useNavigate();
+  const [isCheckingSubscription, setIsCheckingSubscription] =
+    React.useState(true);
   const [searchParams] = React.useMemo(
     () => [new URLSearchParams(window.location.search)],
     [],
   );
 
   React.useEffect(() => {
-    // Only check for payment cancellation, don't force payment status checks
+    // Check for payment cancellation
     if (searchParams.get("cancelled") === "true") {
       // Clear any pending session data
       sessionStorage.removeItem("payment_session");
+      setIsCheckingSubscription(false);
+      return;
     }
-  }, [searchParams]);
 
-  // Show loading while auth is loading
-  if (loading) {
-    return <LoadingScreen text="Loading..." />;
-  }
+    // Enhanced subscription check
+    const checkSubscriptionStatus = async () => {
+      if (!user || loading) return;
 
-  // Redirect to home if no user
-  if (!user) {
+      try {
+        setIsCheckingSubscription(true);
+        const hasValidPayment = await checkPaymentStatus();
+
+        if (hasValidPayment) {
+          navigate("/dashboard", { replace: true });
+        }
+      } catch (error) {
+        console.error("Error checking subscription status:", error);
+      } finally {
+        setIsCheckingSubscription(false);
+      }
+    };
+
+    checkSubscriptionStatus();
+  }, [user, loading, navigate, searchParams, checkPaymentStatus]);
+
+  if (!loading && !user) {
     return <Navigate to="/" replace />;
   }
 
-  // If user has completed payment, redirect to dashboard
-  if (hasCompletedPayment) {
-    console.log(
-      "[PlanSelection] User has completed payment, redirecting to dashboard",
-    );
+  if (loading || isCheckingSubscription) {
+    return <LoadingScreen text="Checking subscription status..." />;
+  }
+
+  if (!loading && user && hasCompletedPayment) {
     return <Navigate to="/dashboard" replace />;
   }
 
-  console.log("[PlanSelection] Showing plan selection page");
   return <PlanSelection hasActiveSubscription={hasCompletedPayment} />;
 }
 
@@ -65,43 +82,9 @@ function PrivateRoute({
   children: React.ReactNode;
   requiresPayment?: boolean;
 }) {
-  const { user, loading, hasCompletedPayment, checkPaymentStatus } = useAuth();
-  const [isCheckingPayment, setIsCheckingPayment] = React.useState(false);
-  const [hasCheckedPayment, setHasCheckedPayment] = React.useState(false);
+  const { user, loading, hasCompletedPayment } = useAuth();
 
-  // Additional payment status check for routes that require payment
-  React.useEffect(() => {
-    if (user && requiresPayment && !loading && !hasCheckedPayment) {
-      console.log("[PrivateRoute] Checking payment status on route access", {
-        hasCompletedPayment,
-        requiresPayment,
-      });
-      setIsCheckingPayment(true);
-      checkPaymentStatus()
-        .then((paymentStatus) => {
-          console.log(
-            "[PrivateRoute] Payment status check result:",
-            paymentStatus,
-          );
-          setHasCheckedPayment(true);
-          setIsCheckingPayment(false);
-        })
-        .catch((error) => {
-          console.error("[PrivateRoute] Payment status check failed:", error);
-          setHasCheckedPayment(true);
-          setIsCheckingPayment(false);
-        });
-    } else if (!requiresPayment) {
-      setHasCheckedPayment(true);
-    }
-  }, [user, requiresPayment, loading, hasCheckedPayment, checkPaymentStatus]);
-
-  // Reset check status when user changes
-  React.useEffect(() => {
-    setHasCheckedPayment(false);
-  }, [user?.id]);
-
-  if (loading || (requiresPayment && isCheckingPayment)) {
+  if (loading) {
     return <LoadingScreen text="Loading..." />;
   }
 
@@ -109,17 +92,8 @@ function PrivateRoute({
     return <Navigate to="/" replace />;
   }
 
-  if (requiresPayment && hasCheckedPayment && !hasCompletedPayment) {
-    console.log(
-      "[PrivateRoute] Redirecting to plan selection - payment required but not completed",
-      { hasCompletedPayment, hasCheckedPayment },
-    );
+  if (requiresPayment && !hasCompletedPayment) {
     return <Navigate to="/plan-selection" replace />;
-  }
-
-  // Only render children if we've completed the necessary checks
-  if (requiresPayment && !hasCheckedPayment) {
-    return <LoadingScreen text="Verifying subscription..." />;
   }
 
   return <>{children}</>;
@@ -128,9 +102,6 @@ function PrivateRoute({
 function AppRoutes() {
   return (
     <>
-      {/* Tempo routes first to prevent conflicts */}
-      {import.meta.env.VITE_TEMPO === "true" && useRoutes(routes)}
-
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/login" element={<LoginForm />} />
@@ -154,12 +125,8 @@ function AppRoutes() {
         <Route path="/success" element={<Success />} />
         <Route path="/forgot-password" element={<ForgotPasswordForm />} />
         <Route path="/reset-password" element={<ResetPasswordForm />} />
-
-        {/* Tempo catchall route */}
-        {import.meta.env.VITE_TEMPO === "true" && (
-          <Route path="/tempobook/*" element={<div />} />
-        )}
       </Routes>
+      {import.meta.env.VITE_TEMPO === "true" && useRoutes(routes)}
     </>
   );
 }

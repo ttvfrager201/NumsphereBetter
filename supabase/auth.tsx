@@ -43,126 +43,78 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const checkPaymentStatus = async (): Promise<boolean> => {
     if (!user) {
       setHasCompletedPayment(false);
-      localStorage.removeItem("payment_status_cache");
       return false;
     }
 
-    // Prevent multiple simultaneous calls but reduce throttling
-    const checkKey = `payment_check_${user.id}`;
-    const lastCheck = localStorage.getItem(checkKey);
-    const now = Date.now();
-
-    // Reduce throttling to 2 seconds for faster checks
-    if (lastCheck && now - parseInt(lastCheck) < 2000) {
-      const cachedStatus = localStorage.getItem("payment_status_cache");
-      if (cachedStatus) {
-        try {
-          const cached = JSON.parse(cachedStatus);
-          if (cached.userId === user.id) {
-            console.log(
-              "[Auth] Using cached payment status:",
-              cached.hasPayment,
-            );
-            setHasCompletedPayment(cached.hasPayment);
-            return cached.hasPayment;
-          }
-        } catch (e) {}
-      }
-      return hasCompletedPayment;
-    }
-
-    localStorage.setItem(checkKey, now.toString());
-    console.log("[Auth] Checking payment status for user:", user.id);
-
     try {
-      // Check cache first but with shorter cache time for more accuracy
-      const cachedStatus = localStorage.getItem("payment_status_cache");
-      if (cachedStatus) {
-        try {
-          const cached = JSON.parse(cachedStatus);
-          const cacheAge = Date.now() - cached.timestamp;
-          // Use cache if less than 2 minutes old for faster updates
-          if (cacheAge < 2 * 60 * 1000 && cached.userId === user.id) {
-            console.log(
-              "[Auth] Using fresh cached payment status:",
-              cached.hasPayment,
-            );
-            setHasCompletedPayment(cached.hasPayment);
-            return cached.hasPayment;
-          }
-        } catch (e) {
-          localStorage.removeItem("payment_status_cache");
-        }
+      // Enhanced security check - verify multiple sources
+      const [userResult, subscriptionResult] = await Promise.all([
+        supabase
+          .from("users")
+          .select("has_completed_payment, updated_at")
+          .eq("id", user.id)
+          .single(),
+        supabase
+          .from("user_subscriptions")
+          .select(
+            "status, stripe_subscription_id, updated_at, security_fingerprint",
+          )
+          .eq("user_id", user.id)
+          .order("updated_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ]);
+
+      const { data: userData, error: userError } = userResult;
+      const { data: subscriptionData, error: subError } = subscriptionResult;
+
+      if (userError && userError.code !== "PGRST116") {
+        console.error("Error checking user payment status:", userError);
+        setHasCompletedPayment(false);
+        return false;
       }
 
-      // Check subscription status with optimized query
-      const { data: subscriptionData, error: subError } = await supabase
-        .from("user_subscriptions")
-        .select("status, stripe_subscription_id")
-        .eq("user_id", user.id)
-        .eq("status", "active")
-        .not("stripe_subscription_id", "is", null)
-        .limit(1)
-        .maybeSingle();
+      // Security validation - check for tampering
+      const currentFingerprint = generateSecurityFingerprint();
+      const storedFingerprint = subscriptionData?.security_fingerprint;
 
-      console.log("[Auth] Subscription query result:", {
-        subscriptionData,
-        subError,
-      });
+      // Allow some flexibility for legitimate device changes
+      const fingerprintValid =
+        !storedFingerprint ||
+        Math.abs(
+          parseInt(currentFingerprint, 36) - parseInt(storedFingerprint, 36),
+        ) < 1000000;
 
-      if (subError && subError.code !== "PGRST116") {
-        console.error("[Auth] Error checking subscription status:", subError);
-        const fallbackCache = localStorage.getItem("payment_status_cache");
-        if (fallbackCache) {
-          try {
-            const cached = JSON.parse(fallbackCache);
-            if (cached.userId === user.id) {
-              setHasCompletedPayment(cached.hasPayment);
-              return cached.hasPayment;
-            }
-          } catch (e) {}
-        }
-        return hasCompletedPayment;
+      if (!fingerprintValid) {
+        console.warn("Security fingerprint mismatch detected");
+        // Don't block immediately, but log for monitoring
       }
 
-      // Check if user has active subscription
-      const hasValidPayment = !!(
+      // Strict validation - both conditions must be true
+      const hasValidPayment =
+        userData?.has_completed_payment === true &&
         subscriptionData?.status === "active" &&
-        subscriptionData?.stripe_subscription_id
-      );
+        subscriptionData?.stripe_subscription_id;
 
-      console.log("[Auth] Payment status determined:", {
-        hasValidPayment,
-        subscriptionStatus: subscriptionData?.status,
-        hasStripeId: !!subscriptionData?.stripe_subscription_id,
-        planId: subscriptionData?.plan_id,
-      });
+      // Additional security check - verify subscription is recent enough
+      if (hasValidPayment && subscriptionData?.updated_at) {
+        const lastUpdate = new Date(subscriptionData.updated_at);
+        const daysSinceUpdate =
+          (Date.now() - lastUpdate.getTime()) / (1000 * 60 * 60 * 24);
 
-      // Cache the result with shorter cache time
-      localStorage.setItem(
-        "payment_status_cache",
-        JSON.stringify({
-          hasPayment: hasValidPayment,
-          userId: user.id,
-          timestamp: Date.now(),
-        }),
-      );
+        // If subscription hasn't been updated in 35 days, re-verify
+        if (daysSinceUpdate > 35) {
+          console.log("Subscription verification needed - outdated");
+          // Could trigger re-verification here
+        }
+      }
 
       setHasCompletedPayment(hasValidPayment);
       return hasValidPayment;
     } catch (error) {
-      console.error("[Auth] Error checking payment status:", error);
-      const fallbackCache = localStorage.getItem("payment_status_cache");
-      if (fallbackCache) {
-        try {
-          const cached = JSON.parse(fallbackCache);
-          if (cached.userId === user.id) {
-            setHasCompletedPayment(cached.hasPayment);
-            return cached.hasPayment;
-          }
-        } catch (e) {}
-      }
-      return hasCompletedPayment;
+      console.error("Error checking payment status:", error);
+      setHasCompletedPayment(false);
+      return false;
     }
   };
 
@@ -191,11 +143,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       setUser(session?.user ?? null);
       if (session?.user) {
-        // Always check payment status when session is restored
         await checkPaymentStatus();
       } else {
         setHasCompletedPayment(false);
-        localStorage.removeItem("payment_status_cache");
       }
       setLoading(false);
     });
@@ -211,45 +161,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       ) {
         setUser(session?.user ?? null);
         if (session?.user) {
-          // Check payment status for all auth events with user
           await checkPaymentStatus();
-        } else if (event === "SIGNED_OUT") {
+        } else {
           setHasCompletedPayment(false);
-          localStorage.removeItem("payment_status_cache");
         }
         setLoading(false);
       }
     });
 
-    // Handle visibility change to refresh payment status when tab becomes visible (THROTTLED)
-    const handleVisibilityChange = async () => {
-      if (!document.hidden && user) {
-        // Check if we recently checked payment status
-        const lastVisibilityCheck = localStorage.getItem(
-          `visibility_check_${user.id}`,
-        );
-        const now = Date.now();
-
-        if (
-          !lastVisibilityCheck ||
-          now - parseInt(lastVisibilityCheck) > 30000
-        ) {
-          // Only check once every 30 seconds on visibility change
-          localStorage.setItem(`visibility_check_${user.id}`, now.toString());
-          setTimeout(async () => {
-            await checkPaymentStatus();
-          }, 1000);
-        }
-      }
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
     return () => {
       subscription.unsubscribe();
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [user]);
+  }, []);
 
   const signUp = async (email: string, password: string, fullName: string) => {
     // Enhanced input validation

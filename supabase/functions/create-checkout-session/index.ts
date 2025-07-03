@@ -9,12 +9,48 @@ const corsHeaders = {
 };
 
 // Configuration utilities
-function getFrontendBaseUrl(): string {
-  const frontendUrl =
-    Deno.env.get("FRONTEND_URL") ||
-    "https://sweet-black4-8f693.view-3.tempo-dev.app";
-  console.log("Using frontend URL:", frontendUrl);
-  return frontendUrl;
+async function getFrontendBaseUrl(): Promise<string> {
+  try {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_KEY");
+
+    if (!supabaseUrl || !supabaseServiceKey) {
+      throw new Error("Missing Supabase configuration");
+    }
+
+    const response = await fetch(
+      `${supabaseUrl}/rest/v1/app_settings?select=frontend_url&key=eq.frontend_base_url`,
+      {
+        headers: {
+          Authorization: `Bearer ${supabaseServiceKey}`,
+          apikey: supabaseServiceKey,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+
+    if (response.ok) {
+      const data = await response.json();
+      if (data && data.length > 0 && data[0].frontend_url) {
+        console.log("Using database frontend URL:", data[0].frontend_url);
+        return data[0].frontend_url;
+      }
+    }
+
+    // Fallback to environment variable or default
+    const fallbackUrl =
+      Deno.env.get("FRONTEND_URL") ||
+      "https://strange-black9-lg3wv.view-3.tempo-dev.app/";
+    console.log("Using fallback frontend URL:", fallbackUrl);
+    return fallbackUrl;
+  } catch (error) {
+    console.error("Error fetching frontend URL from database:", error);
+    const fallbackUrl =
+      Deno.env.get("FRONTEND_URL") ||
+      "https://strange-black9-lg3wv.view-3.tempo-dev.app/";
+    console.log("Using fallback frontend URL due to error:", fallbackUrl);
+    return fallbackUrl;
+  }
 }
 
 function logConfig(context: string): void {
@@ -93,7 +129,7 @@ Deno.serve(async (req) => {
   const stripe = new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" });
 
   try {
-    const frontendUrl = getFrontendBaseUrl();
+    const frontendUrl = await getFrontendBaseUrl();
 
     // Generate enhanced security tokens
     const securityToken = crypto.randomUUID();

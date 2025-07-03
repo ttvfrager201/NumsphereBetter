@@ -21,16 +21,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import {
-  Bell,
-  Home,
-  Search,
-  Settings,
-  User,
-  LogOut,
-  Sun,
-  Moon,
-} from "lucide-react";
+import { Bell, Home, Search, Settings, User, LogOut } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../../../supabase/auth";
 import { useState, useEffect } from "react";
@@ -40,8 +31,6 @@ interface TopNavigationProps {
   onSearch?: (query: string) => void;
   notifications?: Array<{ id: string; title: string }>;
   onSettingsClick?: () => void;
-  theme?: string;
-  onThemeToggle?: () => void;
 }
 
 interface UserProfile {
@@ -58,8 +47,6 @@ const TopNavigation = ({
     { id: "2", title: "Meeting reminder" },
   ],
   onSettingsClick = () => {},
-  theme = "light",
-  onThemeToggle = () => {},
 }: TopNavigationProps) => {
   const { user, signOut } = useAuth();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
@@ -168,33 +155,6 @@ const TopNavigation = ({
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
-
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                onClick={onThemeToggle}
-                variant="ghost"
-                size="icon"
-                className="rounded-full h-9 w-9 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 transition-colors"
-              >
-                {theme === "light" ? (
-                  <Moon className="h-4 w-4 text-gray-700 dark:text-gray-300" />
-                ) : (
-                  <Sun className="h-4 w-4 text-gray-700 dark:text-gray-300" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent className="rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-xs px-3 py-1.5">
-              <p>
-                {theme === "light"
-                  ? "Switch to dark mode"
-                  : "Switch to light mode"}
-              </p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
