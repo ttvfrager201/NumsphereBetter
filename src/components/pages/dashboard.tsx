@@ -79,86 +79,61 @@ const useTheme = () => {
 // Optimized Stripe Customer Portal Component
 const BillingManagement = () => {
   const { user } = useAuth();
-  const [customerPortalUrl, setCustomerPortalUrl] = useState<string | null>(
-    null,
-  );
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const { toast } = useToast();
 
-  useEffect(() => {
-    const fetchCustomerPortal = async () => {
-      if (!user) return;
-
-      try {
-        const { data, error } = await supabase.functions.invoke(
-          "supabase-functions-get-payment-history",
-          {
-            body: { userId: user.id },
-          },
-        );
-
-        if (error) {
-          console.error("Error from edge function:", error);
-          throw error;
-        }
-
-        if (data?.customerPortalUrl) {
-          setCustomerPortalUrl(data.customerPortalUrl);
-        }
-      } catch (error) {
-        console.error("Error fetching customer portal:", error);
-        toast({
-          title: "Error",
-          description: "Failed to load billing management. Please try again.",
-          variant: "destructive",
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchCustomerPortal();
-  }, [user, toast]);
-
-  const handleOpenPortal = (e: React.MouseEvent) => {
+  const handleOpenPortal = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
 
-    if (customerPortalUrl) {
-      // Open in new tab/window
-      const newWindow = window.open(
-        customerPortalUrl,
-        "_blank",
-        "noopener,noreferrer",
+    if (!user || loading) return;
+
+    setLoading(true);
+    try {
+      console.log("Creating customer portal for user:", user.id);
+
+      const { data, error } = await supabase.functions.invoke(
+        "create-customer-portal",
+        {
+          body: { userId: user.id },
+        },
       );
-      if (newWindow) {
-        newWindow.focus();
-      } else {
-        // Fallback if popup blocked
-        window.location.href = customerPortalUrl;
+
+      if (error) {
+        console.error("Error from edge function:", error);
+        throw error;
       }
-    } else {
+
+      console.log("Customer portal response:", data);
+
+      if (data?.customerPortalUrl) {
+        // Open in new tab/window
+        const newWindow = window.open(
+          data.customerPortalUrl,
+          "_blank",
+          "noopener,noreferrer",
+        );
+        if (newWindow) {
+          newWindow.focus();
+        } else {
+          // Fallback if popup blocked
+          window.location.href = data.customerPortalUrl;
+        }
+      } else {
+        throw new Error(data?.message || "No customer portal URL available");
+      }
+    } catch (error) {
+      console.error("Error creating customer portal:", error);
       toast({
         title: "Error",
         description:
-          "Billing portal is not available. Please try again or contact support.",
+          error.message || "Failed to open billing portal. Please try again.",
         variant: "destructive",
       });
+    } finally {
+      setLoading(false);
     }
   };
-
-  if (loading) {
-    return (
-      <div className="space-y-6">
-        <div className="text-center py-8">
-          <h2 className="text-2xl font-bold text-gray-900 mb-4">
-            Billing Management
-          </h2>
-          <p className="text-gray-600">Loading billing portal...</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6">
@@ -210,7 +185,7 @@ const BillingManagement = () => {
 
               <Button
                 onClick={handleOpenPortal}
-                disabled={!customerPortalUrl || loading}
+                disabled={loading}
                 className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white px-8 py-3 rounded-xl font-semibold transition-all duration-200 transform hover:scale-[1.02] shadow-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
                 type="button"
               >
@@ -544,7 +519,7 @@ const Home = () => {
     }
   };
   return (
-    <div className="min-h-screen bg-[#f5f5f7] dark:bg-gray-900 transition-colors duration-200">
+    <div className="h-screen bg-[#f5f5f7] dark:bg-gray-900 transition-colors duration-200 overflow-hidden">
       <TopNavigation onSettingsClick={() => setIsSettingsOpen(true)} />
       <div className="flex h-[calc(100vh-64px)] mt-16">
         <Sidebar
@@ -579,7 +554,7 @@ const Home = () => {
           </div>
           <div
             className={cn(
-              "container mx-auto p-6 space-y-8",
+              "container mx-auto p-6 space-y-8 min-h-full",
               "transition-all duration-300 ease-in-out",
             )}
           >

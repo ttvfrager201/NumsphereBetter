@@ -129,11 +129,13 @@ Deno.serve(async (req) => {
       .single();
 
     if (subscriptionError || !subscriptionData?.stripe_customer_id) {
+      console.log("No subscription data found for user:", userId);
       return new Response(
         JSON.stringify({
           payments: [],
           customerPortalUrl: null,
           subscription: null,
+          message: "No active subscription found",
         }),
         {
           status: 200,
@@ -244,13 +246,20 @@ Deno.serve(async (req) => {
       // Create customer portal session for subscription management
       let customerPortalUrl = null;
       try {
+        // Get the origin from request headers or use a fallback
+        const origin =
+          req.headers.get("origin") ||
+          req.headers.get("referer")?.split("/").slice(0, 3).join("/") ||
+          "https://epic-lehmann4-8kltr.view-3.tempo-dev.app";
+
         const portalSession = await stripe.billingPortal.sessions.create({
           customer: customerId,
-          return_url: `${req.headers.get("origin") || "https://app.numsphere.com"}/dashboard`,
+          return_url: `${origin}/dashboard`,
         });
         customerPortalUrl = portalSession.url;
+        console.log("Customer portal created successfully:", customerPortalUrl);
       } catch (portalError) {
-        // Silently handle portal creation errors to reduce console noise
+        console.error("Error creating customer portal:", portalError);
       }
 
       return new Response(

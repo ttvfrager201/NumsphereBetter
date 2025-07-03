@@ -139,15 +139,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
+    let isInitialLoad = true;
+    let lastPaymentCheck = 0;
+    const PAYMENT_CHECK_COOLDOWN = 30000; // 30 seconds
+
     // Check active sessions and sets the user
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       setUser(session?.user ?? null);
-      if (session?.user) {
+      if (session?.user && isInitialLoad) {
+        lastPaymentCheck = Date.now();
         await checkPaymentStatus();
-      } else {
+      } else if (!session?.user) {
         setHasCompletedPayment(false);
       }
       setLoading(false);
+      isInitialLoad = false;
     });
 
     // Listen for changes on auth state (signed in, signed out, etc.)
@@ -156,17 +162,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log("Auth state change:", event);
 
-      // Only check payment status on specific auth events, not on every change
-      if (event === "SIGNED_IN") {
+      // Only check payment status on actual sign in, not on token refresh or other events
+      if (event === "SIGNED_IN" && !isInitialLoad) {
         setUser(session?.user ?? null);
         if (session?.user) {
-          await checkPaymentStatus();
+          const now = Date.now();
+          // Only check payment status if enough time has passed
+          if (now - lastPaymentCheck > PAYMENT_CHECK_COOLDOWN) {
+            lastPaymentCheck = now;
+            await checkPaymentStatus();
+          }
         }
         setLoading(false);
       } else if (event === "SIGNED_OUT") {
         setUser(null);
         setHasCompletedPayment(false);
         setLoading(false);
+        lastPaymentCheck = 0;
       } else if (event === "TOKEN_REFRESHED") {
         // Don't check payment status on token refresh to avoid unnecessary calls
         setUser(session?.user ?? null);
@@ -174,8 +186,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
+    // Prevent payment status checks when tab becomes visible
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        console.log(
+          "Tab became visible - skipping payment check to prevent redirects",
+        );
+        // Don't check payment status when tab becomes visible
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
     return () => {
       subscription.unsubscribe();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, []);
 

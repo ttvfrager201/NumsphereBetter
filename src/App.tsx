@@ -83,6 +83,22 @@ function PrivateRoute({
   requiresPayment?: boolean;
 }) {
   const { user, loading, hasCompletedPayment } = useAuth();
+  const [isCheckingPayment, setIsCheckingPayment] = React.useState(false);
+
+  // Prevent unnecessary redirects when user is already on dashboard
+  React.useEffect(() => {
+    if (requiresPayment && user && !loading && !hasCompletedPayment) {
+      // Only redirect if we're not already checking payment status
+      const currentPath = window.location.pathname;
+      if (currentPath === "/dashboard" && !isCheckingPayment) {
+        setIsCheckingPayment(true);
+        // Add a small delay to prevent immediate redirect on tab switch
+        setTimeout(() => {
+          setIsCheckingPayment(false);
+        }, 1000);
+      }
+    }
+  }, [user, loading, hasCompletedPayment, requiresPayment]);
 
   if (loading) {
     return <LoadingScreen text="Loading..." />;
@@ -92,7 +108,8 @@ function PrivateRoute({
     return <Navigate to="/" replace />;
   }
 
-  if (requiresPayment && !hasCompletedPayment) {
+  // Don't redirect if we're currently checking payment status
+  if (requiresPayment && !hasCompletedPayment && !isCheckingPayment) {
     return <Navigate to="/plan-selection" replace />;
   }
 
