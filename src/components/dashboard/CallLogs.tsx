@@ -53,7 +53,11 @@ interface CallLog {
   };
 }
 
-export default function CallLogs() {
+interface CallLogsProps {
+  phoneNumber?: string;
+}
+
+export default function CallLogs({ phoneNumber }: CallLogsProps = {}) {
   const [callLogs, setCallLogs] = useState<CallLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -62,7 +66,7 @@ export default function CallLogs() {
 
   useEffect(() => {
     fetchCallLogs();
-  }, [user]);
+  }, [user, phoneNumber]);
 
   const fetchCallLogs = async (showRefreshIndicator = false) => {
     if (!user) return;
@@ -74,117 +78,130 @@ export default function CallLogs() {
     }
 
     try {
-      // First try to get call logs from the call_logs table
-      const { data: callLogsData, error: callLogsError } = await supabase
-        .from("call_logs")
-        .select(
-          `
-          *,
-          twilio_numbers (
-            phone_number,
-            friendly_name
-          )
-        `,
-        )
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false })
-        .limit(100);
+      if (phoneNumber) {
+        // Fetch call logs from Twilio for specific phone number
+        console.log(`Fetching call logs for phone number: ${phoneNumber}`);
 
-      if (callLogsError && callLogsError.code !== "PGRST116") {
-        console.error("Error fetching call logs:", callLogsError);
-      }
+        const { data: twilioData, error: twilioError } =
+          await supabase.functions.invoke(
+            "supabase-functions-get-twilio-call-logs",
+            {
+              body: {
+                phoneNumber: phoneNumber,
+                limit: 100,
+              },
+            },
+          );
 
-      // If no call logs found or table doesn't exist, create some sample data for demonstration
-      if (!callLogsData || callLogsData.length === 0) {
-        // Generate sample call logs for demonstration
-        const sampleCallLogs: CallLog[] = [
-          {
-            id: "sample-1",
-            call_sid: "CA1234567890abcdef",
-            from_number: "+15551234567",
-            to_number: "+15559876543",
-            direction: "inbound",
-            call_status: "completed",
-            call_duration: 125,
-            call_minutes: 3,
-            started_at: new Date(Date.now() - 3600000).toISOString(),
-            ended_at: new Date(Date.now() - 3595000).toISOString(),
-            recording_url: null,
-            transcription: null,
-            created_at: new Date(Date.now() - 3600000).toISOString(),
-            twilio_numbers: {
-              phone_number: "+15559876543",
-              friendly_name: "Main Business Line",
-            },
-          },
-          {
-            id: "sample-2",
-            call_sid: "CA0987654321fedcba",
-            from_number: "+15552468135",
-            to_number: "+15559876543",
-            direction: "inbound",
-            call_status: "completed",
-            call_duration: 67,
-            call_minutes: 2,
-            started_at: new Date(Date.now() - 7200000).toISOString(),
-            ended_at: new Date(Date.now() - 7133000).toISOString(),
-            recording_url: "https://api.twilio.com/sample-recording.mp3",
-            transcription: "Hello, I'm calling about your services...",
-            created_at: new Date(Date.now() - 7200000).toISOString(),
-            twilio_numbers: {
-              phone_number: "+15559876543",
-              friendly_name: "Main Business Line",
-            },
-          },
-          {
-            id: "sample-3",
-            call_sid: "CA1357924680bdfhj",
-            from_number: "+15559876543",
-            to_number: "+15551357924",
-            direction: "outbound",
-            call_status: "no-answer",
-            call_duration: 0,
-            call_minutes: 0,
-            started_at: new Date(Date.now() - 10800000).toISOString(),
-            ended_at: new Date(Date.now() - 10770000).toISOString(),
-            recording_url: null,
-            transcription: null,
-            created_at: new Date(Date.now() - 10800000).toISOString(),
-            twilio_numbers: {
-              phone_number: "+15559876543",
-              friendly_name: "Main Business Line",
-            },
-          },
-        ];
-        setCallLogs(sampleCallLogs);
+        console.log("Twilio function response:", {
+          data: twilioData,
+          error: twilioError,
+          hasData: !!twilioData,
+          hasError: !!twilioError,
+        });
+
+        if (twilioError) {
+          console.error("Error fetching Twilio call logs:", twilioError);
+          toast({
+            title: "Error",
+            description:
+              twilioError.message ||
+              "Failed to load call logs from Twilio. Please check your Twilio credentials.",
+            variant: "destructive",
+          });
+          setCallLogs([]);
+          return;
+        }
+
+        if (!twilioData) {
+          console.warn("No data returned from Twilio function");
+          toast({
+            title: "Warning",
+            description:
+              "No call logs data returned. This might be normal if you haven't made any calls yet.",
+            variant: "default",
+          });
+          setCallLogs([]);
+          return;
+        }
+
+        // Show demo mode notification if applicable
+        if (twilioData.demo_mode) {
+          toast({
+            title: "Demo Mode",
+            description:
+              twilioData.message ||
+              "Showing sample data. Configure Twilio credentials for real call logs.",
+            variant: "default",
+          });
+        }
+
+        // Transform Twilio data to match our interface
+        const transformedLogs = (twilioData?.calls || []).map((call: any) => ({
+          id: call.sid,
+          call_sid: call.sid,
+          from_number: call.from,
+          to_number: call.to,
+          direction: call.direction === "inbound" ? "inbound" : "outbound",
+          call_status: call.status,
+          call_duration: call.duration ? parseInt(call.duration) : null,
+          call_minutes: call.duration
+            ? Math.ceil(parseInt(call.duration) / 60)
+            : null,
+          started_at: call.start_time,
+          ended_at: call.end_time,
+          recording_url: null, // Twilio recordings would need separate API call
+          transcription: null,
+          created_at: call.start_time,
+        }));
+
+        setCallLogs(transformedLogs);
+        console.log(
+          `Loaded ${transformedLogs.length} call logs from Twilio for ${phoneNumber}`,
+        );
       } else {
-        setCallLogs(callLogsData);
+        // Get call logs from the call_logs table with proper joins
+        const { data: callLogsData, error: callLogsError } = await supabase
+          .from("call_logs")
+          .select(
+            `
+            *,
+            twilio_numbers (
+              phone_number,
+              friendly_name
+            )
+          `,
+          )
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false })
+          .limit(100);
+
+        if (callLogsError) {
+          console.error("Error fetching call logs:", callLogsError);
+          toast({
+            title: "Error",
+            description: "Failed to load call logs. Please try again.",
+            variant: "destructive",
+          });
+          setCallLogs([]);
+          return;
+        }
+
+        // Set the actual call logs data (empty array if no logs)
+        setCallLogs(callLogsData || []);
+
+        if (callLogsData && callLogsData.length > 0) {
+          console.log(`Loaded ${callLogsData.length} call logs`);
+        }
       }
     } catch (error) {
       console.error("Error fetching call logs:", error);
-      // Show sample data even on error for demonstration
-      const sampleCallLogs: CallLog[] = [
-        {
-          id: "demo-1",
-          call_sid: "CA_demo_123",
-          from_number: "+15551234567",
-          to_number: "+15559876543",
-          direction: "inbound",
-          call_status: "completed",
-          call_duration: 180,
-          call_minutes: 3,
-          started_at: new Date(Date.now() - 1800000).toISOString(),
-          ended_at: new Date(Date.now() - 1620000).toISOString(),
-          recording_url: null,
-          transcription: null,
-          created_at: new Date(Date.now() - 1800000).toISOString(),
-          twilio_numbers: {
-            phone_number: "+15559876543",
-            friendly_name: "Demo Number",
-          },
-        },
-      ];
-      setCallLogs(sampleCallLogs);
+      toast({
+        title: "Error",
+        description: "Failed to load call logs. Please try again.",
+        variant: "destructive",
+      });
+      setCallLogs([]);
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -266,10 +283,12 @@ export default function CallLogs() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <PhoneCall className="h-5 w-5" />
-            Call Logs
+            Call Logs {phoneNumber && `- ${formatPhoneNumber(phoneNumber)}`}
           </CardTitle>
           <CardDescription>
-            View your call history and recordings
+            {phoneNumber
+              ? `Loading call history from Twilio for ${formatPhoneNumber(phoneNumber)}`
+              : "View your call history and recordings"}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -288,10 +307,12 @@ export default function CallLogs() {
           <div>
             <CardTitle className="flex items-center gap-2">
               <PhoneCall className="h-5 w-5" />
-              Call Logs
+              Call Logs {phoneNumber && `- ${formatPhoneNumber(phoneNumber)}`}
             </CardTitle>
             <CardDescription>
-              View your call history, duration, and recordings
+              {phoneNumber
+                ? `Call history from Twilio for ${formatPhoneNumber(phoneNumber)}`
+                : "View your call history, duration, and recordings"}
             </CardDescription>
           </div>
           <Button
@@ -318,8 +339,16 @@ export default function CallLogs() {
               </h3>
               <p className="text-gray-600 mb-6 max-w-md mx-auto">
                 Your call history will appear here once you start receiving or
-                making calls through your phone numbers.
+                making calls through your phone numbers. Make sure you have
+                active phone numbers and call flows configured.
               </p>
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mt-4">
+                <p className="text-sm text-yellow-800">
+                  💡 <strong>Tip:</strong> Configure your Twilio credentials in
+                  the project settings to see real call logs from your phone
+                  numbers.
+                </p>
+              </div>
             </div>
           </div>
         ) : (
