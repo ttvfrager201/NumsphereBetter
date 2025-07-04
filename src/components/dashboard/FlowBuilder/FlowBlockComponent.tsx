@@ -100,12 +100,12 @@ export default function FlowBlockComponent({
 
   return (
     <div
-      className={`absolute w-48 min-h-[100px] p-4 bg-white border-2 rounded-lg shadow-sm cursor-pointer transition-all z-10 select-none ${
+      className={`absolute w-40 min-h-[80px] p-2 bg-white border-2 rounded-lg shadow-sm cursor-pointer transition-all z-10 select-none ${
         isSelected
-          ? "border-blue-500 shadow-lg scale-105"
+          ? "border-blue-500 shadow-lg scale-105 bg-blue-50"
           : isConnecting
             ? "border-green-500 shadow-lg bg-green-50"
-            : "border-gray-200 hover:border-gray-300 hover:shadow-md"
+            : "border-gray-200 hover:border-gray-300 hover:shadow-md hover:scale-102"
       }`}
       style={{
         left: block.position.x,
@@ -118,12 +118,14 @@ export default function FlowBlockComponent({
       onMouseDown={onMouseDown}
     >
       {/* Header */}
-      <div className="flex items-center gap-2 mb-2">
-        <div className={`p-1 rounded ${color} text-white`}>
-          <IconComponent className="h-4 w-4" />
+      <div className="flex items-center gap-1 mb-1">
+        <div className={`p-1 rounded ${color} text-white shadow-sm`}>
+          <IconComponent className="h-3 w-3" />
         </div>
-        <span className="font-medium text-sm flex-1">{label}</span>
-        <div className="flex gap-1">
+        <span className="font-semibold text-xs flex-1 text-gray-800 truncate">
+          {label}
+        </span>
+        <div className="flex gap-0.5">
           <Button
             size="sm"
             variant="ghost"
@@ -135,10 +137,10 @@ export default function FlowBlockComponent({
                 onStartConnecting();
               }
             }}
-            className={`h-6 w-6 p-0 ${
+            className={`h-5 w-5 p-0 ${
               isConnecting
-                ? "text-green-600 bg-green-100"
-                : "text-blue-500 hover:text-blue-700"
+                ? "text-green-600 bg-green-100 hover:bg-green-200"
+                : "text-blue-500 hover:text-blue-700 hover:bg-blue-50"
             }`}
             title={
               isConnecting ? "Cancel connection" : "Connect to another block"
@@ -153,7 +155,7 @@ export default function FlowBlockComponent({
               e.stopPropagation();
               onDelete();
             }}
-            className="h-6 w-6 p-0 text-red-500 hover:text-red-700"
+            className="h-5 w-5 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
             title="Delete block"
           >
             <X className="h-3 w-3" />
@@ -162,19 +164,20 @@ export default function FlowBlockComponent({
       </div>
 
       {/* Preview */}
-      <div className="text-xs text-gray-600 mb-2">{getPreviewText()}</div>
+      <div className="text-xs text-gray-700 mb-1 p-1 bg-gray-50 rounded border">
+        <div className="truncate">{getPreviewText()}</div>
+      </div>
 
       {/* Connection Info */}
       {block.connections.length > 0 && (
-        <div className="text-xs text-blue-600">
-          → Connected to {block.connections.length} block
-          {block.connections.length > 1 ? "s" : ""}
+        <div className="text-xs text-blue-700 font-medium bg-blue-50 px-1 py-0.5 rounded">
+          → {block.connections.length}
         </div>
       )}
 
       {/* Connection Points */}
       <div className="absolute -right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 bg-blue-500 rounded-full border-2 border-white shadow-sm" />
-      <div className="absolute -left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 bg-gray-300 rounded-full border-2 border-white shadow-sm" />
+      <div className="absolute -left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 bg-gray-400 rounded-full border-2 border-white shadow-sm" />
     </div>
   );
 }

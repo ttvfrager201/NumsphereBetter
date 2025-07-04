@@ -38,14 +38,15 @@ export default function BlockProperties({
 }: BlockPropertiesProps) {
   if (!block) {
     return (
-      <Card className="bg-white">
+      <Card>
         <CardContent className="text-center py-8">
           <Settings className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">
             Select a Block
           </h3>
-          <p className="text-gray-500">
-            Click on a block in the canvas to edit its properties
+          <p className="text-sm text-gray-600">
+            Click on a block in the canvas to edit its properties and configure
+            its behavior
           </p>
         </CardContent>
       </Card>
@@ -78,17 +79,17 @@ export default function BlockProperties({
   };
 
   return (
-    <Card className="bg-white">
-      <CardHeader>
-        <CardTitle className="text-sm font-medium">
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm font-semibold">
           {BLOCK_LABELS[block.type]} Settings
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Connection Management */}
-        <div className="space-y-2">
-          <Label>Connections</Label>
-          <div className="text-sm text-gray-600 mb-2">
+        <div className="space-y-3">
+          <Label className="text-sm font-medium">Connections</Label>
+          <div className="text-sm text-gray-600 mb-2 p-2 bg-blue-50 rounded border">
             This block connects to {block.connections.length} other block
             {block.connections.length !== 1 ? "s" : ""}
           </div>
@@ -97,13 +98,11 @@ export default function BlockProperties({
             return connectedBlock ? (
               <div
                 key={connId}
-                className="flex items-center justify-between p-2 bg-gray-50 rounded"
+                className="flex items-center justify-between p-2 bg-gray-50 rounded border"
               >
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="text-xs">
-                    {BLOCK_LABELS[connectedBlock.type]}
-                  </Badge>
-                </div>
+                <Badge variant="outline" className="text-xs">
+                  {BLOCK_LABELS[connectedBlock.type]}
+                </Badge>
                 <Button
                   size="sm"
                   variant="ghost"
@@ -119,9 +118,9 @@ export default function BlockProperties({
             size="sm"
             variant="outline"
             onClick={() => onStartConnecting(block.id)}
-            className="w-full"
+            className="w-full h-8 text-sm"
           >
-            <Link className="h-4 w-4 mr-2" />
+            <Link className="h-4 w-4 mr-1" />
             Connect to Another Block
           </Button>
         </div>
@@ -129,40 +128,45 @@ export default function BlockProperties({
         {/* Block-specific configuration */}
         {block.type === "say" && (
           <div className="space-y-2">
-            <Label>Message Text</Label>
+            <Label className="text-sm">Message Text</Label>
             <Textarea
               value={block.config.text || ""}
               onChange={(e) => updateConfig({ text: e.target.value })}
               placeholder="Enter the message to speak..."
-              rows={4}
+              rows={3}
+              className="text-sm"
             />
           </div>
         )}
 
         {block.type === "gather" && (
-          <div className="space-y-4">
+          <div className="space-y-3">
             <div className="space-y-2">
-              <Label>Menu Prompt</Label>
+              <Label className="text-sm">Menu Prompt</Label>
               <Textarea
                 value={block.config.prompt || ""}
                 onChange={(e) => updateConfig({ prompt: e.target.value })}
                 placeholder="Enter the menu prompt..."
                 rows={3}
+                className="text-sm"
               />
             </div>
 
             <div className="space-y-2">
-              <Label>Menu Options</Label>
+              <Label className="text-sm">Menu Options</Label>
               {(block.config.options || []).map(
                 (option: any, index: number) => (
-                  <div key={index} className="flex gap-2 items-start">
+                  <div
+                    key={index}
+                    className="flex gap-2 items-center p-2 bg-gray-50 rounded border"
+                  >
                     <Input
                       value={option.digit}
                       onChange={(e) =>
                         updateMenuOption(index, { digit: e.target.value })
                       }
                       placeholder="Key"
-                      className="w-16"
+                      className="w-12 h-8 text-sm text-center"
                     />
                     <Input
                       value={option.text}
@@ -170,15 +174,15 @@ export default function BlockProperties({
                         updateMenuOption(index, { text: e.target.value })
                       }
                       placeholder="Action description"
-                      className="flex-1"
+                      className="flex-1 h-8 text-sm"
                     />
                     <Button
                       size="sm"
                       variant="ghost"
                       onClick={() => removeMenuOption(index)}
-                      className="h-10 w-10 p-0 text-red-500"
+                      className="h-8 w-8 p-0 text-red-500"
                     >
-                      <X className="h-4 w-4" />
+                      <X className="h-3 w-3" />
                     </Button>
                   </div>
                 ),
@@ -187,9 +191,9 @@ export default function BlockProperties({
                 size="sm"
                 variant="outline"
                 onClick={addMenuOption}
-                className="w-full"
+                className="w-full h-8 text-sm border-dashed"
               >
-                <Plus className="h-4 w-4 mr-1" />
+                <Plus className="h-3 w-3 mr-1" />
                 Add Option
               </Button>
             </div>

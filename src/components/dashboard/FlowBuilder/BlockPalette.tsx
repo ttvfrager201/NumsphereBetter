@@ -106,11 +106,9 @@ export default function BlockPalette({
   };
 
   return (
-    <Card className="bg-white">
-      <CardHeader>
-        <CardTitle className="text-sm font-medium">
-          🧩 Building Blocks
-        </CardTitle>
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm font-semibold">Building Blocks</CardTitle>
       </CardHeader>
       <CardContent className="space-y-2">
         {BLOCK_TYPES.map((blockType) => {
@@ -122,14 +120,14 @@ export default function BlockPalette({
               onClick={() => handleAddBlock(blockType)}
             >
               <div className="flex items-center gap-2 mb-1">
-                <div
-                  className={`p-1 rounded ${blockType.color} text-white group-hover:scale-110 transition-transform`}
-                >
-                  <IconComponent className="h-3 w-3" />
+                <div className={`p-1.5 rounded ${blockType.color} text-white`}>
+                  <IconComponent className="h-4 w-4" />
                 </div>
-                <span className="font-medium text-sm">{blockType.label}</span>
+                <span className="font-medium text-sm text-gray-800">
+                  {blockType.label}
+                </span>
               </div>
-              <div className="text-xs text-gray-500">
+              <div className="text-xs text-gray-600">
                 {blockType.description}
               </div>
             </div>
@@ -139,9 +137,9 @@ export default function BlockPalette({
         {connectingFrom && (
           <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
             <div className="text-sm font-medium text-green-800 mb-1">
-              🔗 Connection Mode
+              Connection Mode Active
             </div>
-            <div className="text-xs text-green-600">
+            <div className="text-xs text-green-700">
               Click any block above to auto-connect from the selected block.
             </div>
           </div>

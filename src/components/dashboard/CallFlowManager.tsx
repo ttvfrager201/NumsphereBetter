@@ -198,7 +198,7 @@ export default function CallFlowManager() {
     if (connectingFrom) {
       const parentBlock = blocks.find((b) => b.id === connectingFrom);
       if (parentBlock) {
-        newX = parentBlock.position.x + 300;
+        newX = parentBlock.position.x + 200;
         newY = parentBlock.position.y;
         // Connect the blocks
         connectBlocks(connectingFrom, block.id);
@@ -206,19 +206,19 @@ export default function CallFlowManager() {
       }
     } else {
       // Find free position
-      const gridSize = 150;
-      const maxCols = 4;
+      const gridSize = 100;
+      const maxCols = 6;
       let row = 0;
       let col = 0;
 
       while (true) {
-        newX = 100 + col * 300;
-        newY = 100 + row * gridSize;
+        newX = 50 + col * 180;
+        newY = 50 + row * gridSize;
 
         const occupied = blocks.some(
           (b) =>
-            Math.abs(b.position.x - newX) < 250 &&
-            Math.abs(b.position.y - newY) < 100,
+            Math.abs(b.position.x - newX) < 160 &&
+            Math.abs(b.position.y - newY) < 80,
         );
 
         if (!occupied) break;
@@ -534,7 +534,7 @@ export default function CallFlowManager() {
           }
         }}
       >
-        <DialogContent className="max-w-7xl max-h-[90vh] overflow-hidden flex flex-col">
+        <DialogContent className="max-w-[95vw] h-[95vh] overflow-hidden">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Wand2 className="h-5 w-5" />
@@ -545,32 +545,39 @@ export default function CallFlowManager() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="flex h-[65vh] gap-4 flex-1 overflow-hidden">
+          <div className="flex h-full gap-2 overflow-hidden">
             {/* Left Sidebar - Settings & Blocks */}
-            <div className="w-80 space-y-4 overflow-y-auto">
+            <div className="w-64 space-y-2 overflow-y-auto flex-shrink-0">
               {/* Flow Settings */}
               <Card>
-                <CardHeader>
-                  <CardTitle className="text-sm">Flow Settings</CardTitle>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm font-semibold">
+                    Flow Settings
+                  </CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-4">
+                <CardContent className="space-y-3">
                   <div className="space-y-2">
-                    <Label htmlFor="flowName">Flow Name</Label>
+                    <Label htmlFor="flowName" className="text-sm">
+                      Flow Name
+                    </Label>
                     <Input
                       id="flowName"
                       placeholder="e.g., Business Hours Flow"
                       value={flowName}
                       onChange={(e) => setFlowName(e.target.value)}
+                      className="h-9"
                     />
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="numberSelect">Phone Number</Label>
+                    <Label htmlFor="numberSelect" className="text-sm">
+                      Phone Number
+                    </Label>
                     <Select
                       value={selectedNumberId}
                       onValueChange={setSelectedNumberId}
                     >
-                      <SelectTrigger>
+                      <SelectTrigger className="h-9">
                         <SelectValue placeholder="Select a phone number" />
                       </SelectTrigger>
                       <SelectContent>
@@ -584,9 +591,11 @@ export default function CallFlowManager() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="voiceSelect">Voice</Label>
+                    <Label htmlFor="voiceSelect" className="text-sm">
+                      Voice
+                    </Label>
                     <Select value={voice} onValueChange={setVoice}>
-                      <SelectTrigger>
+                      <SelectTrigger className="h-9">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -627,19 +636,21 @@ export default function CallFlowManager() {
             </div>
 
             {/* Main Canvas */}
-            <FlowCanvas
-              blocks={blocks}
-              selectedBlock={selectedBlock}
-              connectingFrom={connectingFrom}
-              onBlockSelect={setSelectedBlock}
-              onBlockUpdate={updateBlock}
-              onBlockDelete={deleteBlock}
-              onConnect={connectBlocks}
-              onSetConnecting={setConnectingFrom}
-            />
+            <div className="flex-1 min-w-0">
+              <FlowCanvas
+                blocks={blocks}
+                selectedBlock={selectedBlock}
+                connectingFrom={connectingFrom}
+                onBlockSelect={setSelectedBlock}
+                onBlockUpdate={updateBlock}
+                onBlockDelete={deleteBlock}
+                onConnect={connectBlocks}
+                onSetConnecting={setConnectingFrom}
+              />
+            </div>
 
             {/* Right Sidebar - Block Properties */}
-            <div className="w-80 overflow-y-auto">
+            <div className="w-64 overflow-y-auto flex-shrink-0">
               <BlockProperties
                 block={selectedBlock}
                 allBlocks={blocks}
@@ -651,7 +662,7 @@ export default function CallFlowManager() {
             </div>
           </div>
 
-          <DialogFooter className="flex justify-between items-center gap-4 pt-4 border-t">
+          <DialogFooter className="flex justify-between items-center gap-4 pt-3 border-t">
             <div className="flex items-center gap-2 text-sm text-gray-600">
               <Badge variant="outline">
                 {formatPhoneNumber(
@@ -662,7 +673,7 @@ export default function CallFlowManager() {
               <Badge variant="outline">{voice}</Badge>
               <Badge variant="outline">{blocks.length} blocks</Badge>
             </div>
-            <div className="flex gap-3">
+            <div className="flex gap-2">
               <Button
                 variant="outline"
                 onClick={() => setShowFlowEditor(false)}
