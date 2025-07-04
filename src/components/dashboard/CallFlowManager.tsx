@@ -272,7 +272,7 @@ export default function CallFlowManager() {
     if (existingFlowForNumber) {
       toast({
         title: "Flow Already Exists",
-        description: `A call flow "${existingFlowForNumber.flow_name}" already exists for this phone number. Each number can only have one active flow.`,
+        description: `A call flow "${existingFlowForNumber.flow_name}" already exists for this phone number. Each number can only have one active flow. Please delete the existing flow first or edit it instead.`,
         variant: "destructive",
       });
       return;

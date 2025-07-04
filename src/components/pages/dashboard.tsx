@@ -380,6 +380,9 @@ const Home = () => {
     amount: number;
   } | null>(null);
   const [loadingStripeData, setLoadingStripeData] = useState(true);
+  const [activeNumbersCount, setActiveNumbersCount] = useState(0);
+  const [activeFlowsCount, setActiveFlowsCount] = useState(0);
+  const [totalMinutesUsed, setTotalMinutesUsed] = useState(0);
   const { theme, toggleTheme } = useTheme();
 
   const [formData, setFormData] = useState({
@@ -495,6 +498,33 @@ const Home = () => {
             amount:
               planPricing[subData.plan_id as keyof typeof planPricing] || 0,
           });
+        }
+
+        // Fetch active numbers count and total minutes used
+        const { data: numbersData } = await supabase
+          .from("twilio_numbers")
+          .select("id, minutes_used")
+          .eq("user_id", user.id)
+          .eq("status", "active");
+
+        if (numbersData) {
+          setActiveNumbersCount(numbersData.length);
+          const totalMinutes = numbersData.reduce(
+            (sum, number) => sum + (number.minutes_used || 0),
+            0,
+          );
+          setTotalMinutesUsed(totalMinutes);
+        }
+
+        // Fetch active flows count
+        const { data: flowsData } = await supabase
+          .from("call_flows")
+          .select("id")
+          .eq("user_id", user.id)
+          .eq("is_active", true);
+
+        if (flowsData) {
+          setActiveFlowsCount(flowsData.length);
         }
       } catch (error) {
         console.error("Error fetching user data:", error);
@@ -775,7 +805,7 @@ const Home = () => {
                     <CardContent>
                       <div className="flex items-center gap-2">
                         <span className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-                          0
+                          {activeNumbersCount}
                         </span>
                       </div>
                       <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
@@ -793,7 +823,7 @@ const Home = () => {
                     <CardContent>
                       <div className="flex items-center gap-2">
                         <span className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-                          0
+                          {totalMinutesUsed}
                         </span>
                       </div>
                       <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
@@ -811,7 +841,7 @@ const Home = () => {
                     <CardContent>
                       <div className="flex items-center gap-2">
                         <span className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-                          0
+                          {activeFlowsCount}
                         </span>
                       </div>
                       <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">

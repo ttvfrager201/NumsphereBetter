@@ -386,6 +386,25 @@ export default function TwilioNumberManager() {
     }
   };
 
+  // Check if number has existing flow
+  const checkNumberHasFlow = async (numberId: string) => {
+    if (!user) return false;
+
+    try {
+      const { data: flowData } = await supabase
+        .from("call_flows")
+        .select("id, flow_name")
+        .eq("twilio_number_id", numberId)
+        .eq("is_active", true)
+        .maybeSingle();
+
+      return flowData;
+    } catch (error) {
+      console.error("Error checking flow:", error);
+      return false;
+    }
+  };
+
   const [showReleaseDialog, setShowReleaseDialog] = useState(false);
   const [numberToRelease, setNumberToRelease] = useState<TwilioNumber | null>(
     null,
