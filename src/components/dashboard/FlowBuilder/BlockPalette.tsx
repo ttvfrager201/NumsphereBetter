@@ -10,6 +10,7 @@ import {
   Play,
   Phone,
   MessageCircle,
+  Clock,
 } from "lucide-react";
 import { FlowBlock } from "@/stores/callFlowStore";
 
@@ -79,6 +80,17 @@ const BLOCK_TYPES = [
     description: "Hang up the call",
     color: "bg-gray-500",
     config: {},
+  },
+  {
+    type: "hold",
+    icon: Clock,
+    label: "Hold Call",
+    description: "Put caller on hold with music",
+    color: "bg-orange-500",
+    config: {
+      musicUrl: "https://example.com/hold-music.mp3",
+      message: "Please hold while we connect you.",
+    },
   },
 ];
 

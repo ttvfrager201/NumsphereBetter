@@ -1,4 +1,6 @@
-import React, { useRef, useCallback } from "react";
+import React, { useRef, useCallback, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
 import { FlowBlock } from "@/stores/callFlowStore";
 import FlowBlockComponent from "./FlowBlockComponent";
 import ConnectionLine from "./ConnectionLine";
@@ -25,6 +27,7 @@ export default function FlowCanvas({
   onSetConnecting,
 }: FlowCanvasProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
+  const [zoom, setZoom] = useState(1);
   const draggedBlock = useRef<{
     id: string;
     offset: { x: number; y: number };
@@ -80,6 +83,18 @@ export default function FlowCanvas({
     [connectingFrom, onConnect, onSetConnecting, onBlockSelect],
   );
 
+  const handleZoomIn = useCallback(() => {
+    setZoom((prev) => Math.min(prev + 0.2, 2));
+  }, []);
+
+  const handleZoomOut = useCallback(() => {
+    setZoom((prev) => Math.max(prev - 0.2, 0.4));
+  }, []);
+
+  const handleResetZoom = useCallback(() => {
+    setZoom(1);
+  }, []);
+
   return (
     <div
       ref={canvasRef}
@@ -89,9 +104,47 @@ export default function FlowCanvas({
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
     >
+      {/* Zoom Controls */}
+      <div className="absolute top-4 right-4 z-20 flex gap-2 bg-white rounded-lg shadow-md border p-1">
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={handleZoomIn}
+          className="h-8 w-8 p-0"
+          title="Zoom In"
+        >
+          <ZoomIn className="h-4 w-4" />
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={handleZoomOut}
+          className="h-8 w-8 p-0"
+          title="Zoom Out"
+        >
+          <ZoomOut className="h-4 w-4" />
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={handleResetZoom}
+          className="h-8 w-8 p-0"
+          title="Reset Zoom"
+        >
+          <RotateCcw className="h-4 w-4" />
+        </Button>
+        <div className="flex items-center px-2 text-xs text-gray-600 border-l">
+          {Math.round(zoom * 100)}%
+        </div>
+      </div>
       <div
         className="absolute inset-0 overflow-auto"
-        style={{ minHeight: "2000px", minWidth: "3000px" }}
+        style={{
+          minHeight: "2000px",
+          minWidth: "3000px",
+          transform: `scale(${zoom})`,
+          transformOrigin: "0 0",
+        }}
       >
         {/* Connection Lines */}
         <svg

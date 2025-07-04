@@ -238,7 +238,21 @@ function generateBlockBasedTwiML(blocks, _voice, statusCallback) {
       case "forward":
         if (block.config.number) {
           const timeout = block.config.timeout || 30;
-          blockTwiml += `  <Dial timeout="${timeout}" statusCallback="${statusCallback}">${block.config.number}</Dial>\n`;
+          // Optional hold music URL (must be an accessible audio file)
+          const holdMusicUrl = block.config.holdMusicUrl;
+          // Optional loop count for hold music (default to 10 loops)
+          const holdMusicLoop = block.config.holdMusicLoop || 10;
+
+          if (holdMusicUrl) {
+            // Play hold music while dialing
+            blockTwiml += `  <Dial timeout="${timeout}" statusCallback="${statusCallback}">\n`;
+            blockTwiml += `    <Play loop="${holdMusicLoop}">${escapeXml(holdMusicUrl)}</Play>\n`;
+            blockTwiml += `    <Number>${escapeXml(block.config.number)}</Number>\n`;
+            blockTwiml += `  </Dial>\n`;
+          } else {
+            // No hold music, regular dial
+            blockTwiml += `  <Dial timeout="${timeout}" statusCallback="${statusCallback}">${escapeXml(block.config.number)}</Dial>\n`;
+          }
         }
         break;
       case "record":

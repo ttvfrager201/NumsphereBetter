@@ -33,6 +33,7 @@ const BLOCK_LABELS = {
   play: "Play Audio",
   hangup: "End Call",
   sms: "Send SMS",
+  hold: "Hold Call",
 };
 
 export default function BlockProperties({
@@ -297,6 +298,33 @@ export default function BlockProperties({
                 max="300"
               />
             </div>
+            <div className="space-y-2">
+              <Label>Hold Music URL (Optional)</Label>
+              <Input
+                value={block.config.holdMusicUrl || ""}
+                onChange={(e) => updateConfig({ holdMusicUrl: e.target.value })}
+                placeholder="https://example.com/hold-music.mp3"
+              />
+              <div className="text-xs text-gray-500">
+                Play music while dialing. Must be an accessible audio file (MP3,
+                WAV, etc.)
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Hold Music Loop Count</Label>
+              <Input
+                type="number"
+                value={block.config.holdMusicLoop || 10}
+                onChange={(e) =>
+                  updateConfig({ holdMusicLoop: parseInt(e.target.value) })
+                }
+                min="1"
+                max="100"
+              />
+              <div className="text-xs text-gray-500">
+                Number of times to loop the hold music (default: 10)
+              </div>
+            </div>
           </div>
         )}
 
@@ -349,6 +377,28 @@ export default function BlockProperties({
               onChange={(e) => updateConfig({ url: e.target.value })}
               placeholder="https://example.com/audio.mp3"
             />
+          </div>
+        )}
+
+        {block.type === "hold" && (
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Hold Message</Label>
+              <Textarea
+                value={block.config.message || ""}
+                onChange={(e) => updateConfig({ message: e.target.value })}
+                placeholder="Please hold while we connect you..."
+                rows={3}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Hold Music URL</Label>
+              <Input
+                value={block.config.musicUrl || ""}
+                onChange={(e) => updateConfig({ musicUrl: e.target.value })}
+                placeholder="https://example.com/hold-music.mp3"
+              />
+            </div>
           </div>
         )}
       </CardContent>

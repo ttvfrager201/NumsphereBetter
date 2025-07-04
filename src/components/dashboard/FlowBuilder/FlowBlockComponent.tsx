@@ -10,6 +10,7 @@ import {
   Phone,
   X,
   Link,
+  Clock,
 } from "lucide-react";
 import { FlowBlock } from "@/stores/callFlowStore";
 
@@ -22,6 +23,7 @@ const BLOCK_ICONS = {
   play: Play,
   hangup: Phone,
   sms: MessageSquare,
+  hold: Clock,
 };
 
 const BLOCK_COLORS = {
@@ -33,6 +35,7 @@ const BLOCK_COLORS = {
   play: "bg-indigo-500",
   hangup: "bg-gray-500",
   sms: "bg-pink-500",
+  hold: "bg-orange-500",
 };
 
 const BLOCK_LABELS = {
@@ -44,6 +47,7 @@ const BLOCK_LABELS = {
   play: "Play Audio",
   hangup: "End Call",
   sms: "Send SMS",
+  hold: "Hold Call",
 };
 
 interface FlowBlockComponentProps {
@@ -93,6 +97,8 @@ export default function FlowBlockComponent({
         return block.config.url ? "🎵 Play audio" : "No audio URL";
       case "hangup":
         return "📞 End call";
+      case "hold":
+        return "🎵 Hold with music";
       default:
         return "Configure block";
     }

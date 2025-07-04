@@ -7,31 +7,40 @@ const corsHeaders = {
   "Access-Control-Max-Age": "86400",
 };
 Deno.serve(async (req) => {
-  // Handle CORS preflight requests
+  // Handle CORS preflight early
   if (req.method === "OPTIONS") {
     return new Response(null, {
       status: 204,
       headers: corsHeaders,
     });
   }
-  try {
-    const url = new URL(req.url);
-    const blockId = url.searchParams.get("blockId");
+  const url = new URL(req.url);
+  const blockId = url.searchParams.get("blockId");
+  // Parse parameters ONCE here
+  let callSid, from, to, digits;
+  if (req.method === "POST") {
     const bodyText = await req.text();
     const params = new URLSearchParams(bodyText);
-    const callSid = params.get("CallSid")?.toString();
-    const from = params.get("From")?.toString();
-    const to = params.get("To")?.toString();
-    const digits = params.get("Digits")?.toString();
-    console.log(`[handle-gather] Processing gather input:`, {
-      callSid,
-      from,
-      to,
-      digits,
-      blockId,
-    });
+    callSid = params.get("CallSid");
+    from = params.get("From");
+    to = params.get("To");
+    digits = params.get("Digits");
+  } else if (req.method === "GET") {
+    callSid = url.searchParams.get("CallSid");
+    from = url.searchParams.get("From");
+    to = url.searchParams.get("To");
+    digits = url.searchParams.get("Digits");
+  }
+  console.log("[handle-gather] Processing gather input:", {
+    callSid,
+    from,
+    to,
+    digits,
+    blockId,
+  });
+  try {
     if (!digits) {
-      console.log(`[handle-gather] No digits received`);
+      console.log("[handle-gather] No digits received");
       return generateErrorTwiML("No input received. Please try again.");
     }
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -64,7 +73,7 @@ Deno.serve(async (req) => {
     // Get active call flow
     const activeFlow = twilioNumber.call_flows?.find((flow) => flow.is_active);
     if (!activeFlow || !activeFlow.flow_config) {
-      console.error(`[handle-gather] No active call flow found`);
+      console.error("[handle-gather] No active call flow found");
       return generateErrorTwiML("No active call flow found.");
     }
     const config =
@@ -72,7 +81,7 @@ Deno.serve(async (req) => {
         ? JSON.parse(activeFlow.flow_config)
         : activeFlow.flow_config;
     if (!config.blocks || !Array.isArray(config.blocks)) {
-      console.error(`[handle-gather] Invalid call flow configuration`);
+      console.error("[handle-gather] Invalid call flow configuration");
       return generateErrorTwiML("Invalid call flow configuration.");
     }
     // Find the gather block
@@ -82,7 +91,7 @@ Deno.serve(async (req) => {
         `[handle-gather] Gather block not found for blockId: ${blockId}`,
       );
       console.error(
-        `[handle-gather] Available blocks:`,
+        "[handle-gather] Available blocks:",
         config.blocks.map((b) => ({
           id: b.id,
           type: b.type,
@@ -95,12 +104,12 @@ Deno.serve(async (req) => {
       (option) => option.digit === digits.toString(),
     );
     console.log(
-      `[handle-gather] Available options:`,
+      "[handle-gather] Available options:",
       JSON.stringify(gatherBlock.config.options, null, 2),
     );
-    console.log(`[handle-gather] Looking for digit:`, digits);
+    console.log("[handle-gather] Looking for digit:", digits);
     console.log(
-      `[handle-gather] Selected option:`,
+      "[handle-gather] Selected option:",
       JSON.stringify(selectedOption, null, 2),
     );
     let twiml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -108,7 +117,7 @@ Deno.serve(async (req) => {
 `;
     const voice = "alice";
     if (selectedOption) {
-      console.log(`[handle-gather] Processing selected option:`, {
+      console.log("[handle-gather] Processing selected option:", {
         digit: selectedOption.digit,
         text: selectedOption.text,
         blockId: selectedOption.blockId,
@@ -120,7 +129,7 @@ Deno.serve(async (req) => {
           (b) => b.id === selectedOption.blockId,
         );
         if (connectedBlock) {
-          console.log(`[handle-gather] Routing to connected block:`, {
+          console.log("[handle-gather] Routing to connected block:", {
             blockId: connectedBlock.id,
             blockType: connectedBlock.type,
             blockConfig: connectedBlock.config,
@@ -139,7 +148,7 @@ Deno.serve(async (req) => {
           }
         } else {
           console.error(
-            `[handle-gather] Connected block not found:`,
+            "[handle-gather] Connected block not found:",
             selectedOption.blockId,
           );
           twiml += `  <Say voice="${voice}">Configuration error. Connected block not found. Please contact support.</Say>\n`;
@@ -148,7 +157,7 @@ Deno.serve(async (req) => {
       } else {
         // No block connection - provide response based on option text or action
         console.log(
-          `[handle-gather] No block connection for option, using text response`,
+          "[handle-gather] No block connection for option, using text response",
         );
         if (selectedOption.text && selectedOption.text.trim() !== "") {
           twiml += `  <Say voice="${voice}">${escapeXml(selectedOption.text)}</Say>\n`;
@@ -160,10 +169,11 @@ Deno.serve(async (req) => {
     } else {
       // No matching option, provide default response
       console.log(
-        `[handle-gather] No matching option found for digit: ${digits}`,
+        "[handle-gather] No matching option found for digit:",
+        digits,
       );
       console.log(
-        `[handle-gather] All available options:`,
+        "[handle-gather] All available options:",
         gatherBlock.config.options?.map((opt) => ({
           digit: opt.digit,
           text: opt.text,
@@ -188,7 +198,7 @@ Deno.serve(async (req) => {
       twiml += `  <Hangup/>\n`;
     }
     twiml += `</Response>`;
-    console.log(`[handle-gather] Generated TwiML:`, twiml);
+    console.log("[handle-gather] Generated TwiML:", twiml);
     return new Response(twiml, {
       headers: {
         ...corsHeaders,
@@ -196,7 +206,7 @@ Deno.serve(async (req) => {
       },
     });
   } catch (error) {
-    console.error(`[handle-gather] Error:`, error);
+    console.error("[handle-gather] Error:", error);
     return generateErrorTwiML(
       "We're experiencing technical difficulties. Please try again later.",
     );
@@ -227,7 +237,7 @@ function generateBlockTwiML(block, allBlocks, voice) {
       return "";
     }
     processedBlocks.add(currentBlock.id);
-    console.log(`[generateBlockTwiML] Processing block:`, {
+    console.log("[generateBlockTwiML] Processing block:", {
       id: currentBlock.id,
       type: currentBlock.type,
       config: currentBlock.config,
@@ -270,7 +280,7 @@ function generateBlockTwiML(block, allBlocks, voice) {
       case "gather":
         // Don't process gather blocks in this context to avoid infinite loops
         console.log(
-          `[generateBlockTwiML] Skipping gather block to avoid loops`,
+          "[generateBlockTwiML] Skipping gather block to avoid loops",
         );
         blockTwiml += `  <Say voice="${voice}">Menu option processed.</Say>\n`;
         blockTwiml += `  <Hangup/>\n`;
@@ -283,7 +293,8 @@ function generateBlockTwiML(block, allBlocks, voice) {
         break;
       default:
         console.log(
-          `[generateBlockTwiML] Unknown block type: ${currentBlock.type}`,
+          "[generateBlockTwiML] Unknown block type:",
+          currentBlock.type,
         );
         blockTwiml += `  <Say voice="${voice}">Unknown block type.</Say>\n`;
         blockTwiml += `  <Hangup/>\n`;
@@ -292,7 +303,7 @@ function generateBlockTwiML(block, allBlocks, voice) {
     // Process connected blocks
     if (currentBlock.connections && currentBlock.connections.length > 0) {
       console.log(
-        `[generateBlockTwiML] Processing connections:`,
+        "[generateBlockTwiML] Processing connections:",
         currentBlock.connections,
       );
       const nextBlock = allBlocks.find(
@@ -302,7 +313,8 @@ function generateBlockTwiML(block, allBlocks, voice) {
         blockTwiml += processBlock(nextBlock);
       } else {
         console.log(
-          `[generateBlockTwiML] Connected block not found: ${currentBlock.connections[0]}`,
+          "[generateBlockTwiML] Connected block not found:",
+          currentBlock.connections[0],
         );
       }
     }

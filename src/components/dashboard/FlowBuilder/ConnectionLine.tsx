@@ -72,6 +72,7 @@ export default function ConnectionLine({
         stroke="#3b82f6"
         strokeWidth="3"
         fill="none"
+        strokeDasharray="8,4"
         markerEnd={`url(#${arrowId})`}
         className="drop-shadow-sm"
       />

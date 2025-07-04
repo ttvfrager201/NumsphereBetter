@@ -12,7 +12,8 @@ export interface FlowBlock {
     | "pause"
     | "record"
     | "play"
-    | "sms";
+    | "sms"
+    | "hold";
   position: { x: number; y: number };
   config: {
     text?: string;
@@ -27,12 +28,15 @@ export interface FlowBlock {
     }>;
     number?: string;
     timeout?: number;
+    holdMusicUrl?: string;
+    holdMusicLoop?: number;
     maxLength?: number;
     finishOnKey?: string;
     url?: string;
     duration?: number;
     message?: string;
     to?: string;
+    musicUrl?: string;
   };
   connections: string[];
 }
