@@ -49,6 +49,7 @@ const defaultNavItems: NavItem[] = [
   { icon: <Home size={20} />, label: "Home", isActive: true },
   { icon: <LayoutDashboard size={20} />, label: "Select Number" },
   { icon: <FolderKanban size={20} />, label: "Call Flows" },
+  { icon: <Clock size={20} />, label: "Call Logs" },
   { icon: <Receipt size={20} />, label: "Billing" },
 ];
 

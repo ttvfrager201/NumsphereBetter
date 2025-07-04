@@ -66,26 +66,28 @@ export default function ConnectionLine({
         filter={`url(#glow-${connectionId})`}
       />
 
-      {/* Main connection line */}
+      {/* Main connection line with dotted style */}
       <path
         d={pathData}
         stroke="#3b82f6"
         strokeWidth="3"
         fill="none"
-        strokeDasharray="8,4"
+        strokeDasharray="6,6"
+        strokeLinecap="round"
         markerEnd={`url(#${arrowId})`}
         className="drop-shadow-sm"
       />
 
-      {/* Animated flow indicator */}
+      {/* Animated flow indicator with dotted pattern */}
       <path
         d={pathData}
         stroke="#60a5fa"
         strokeWidth="2"
         fill="none"
-        strokeDasharray="8,12"
+        strokeDasharray="4,8"
+        strokeLinecap="round"
         className="animate-pulse"
-        opacity="0.8"
+        opacity="0.6"
       />
     </g>
   );

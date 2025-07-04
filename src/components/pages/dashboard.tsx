@@ -5,6 +5,7 @@ import DashboardGrid from "../dashboard/DashboardGrid";
 import TaskBoard from "../dashboard/TaskBoard";
 import TwilioNumberManager from "../dashboard/TwilioNumberManager";
 import CallFlowManager from "../dashboard/CallFlowManager";
+import CallLogs from "../dashboard/CallLogs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -903,6 +904,21 @@ const Home = () => {
                   </p>
                 </div>
                 <CallFlowManager />
+              </div>
+            )}
+
+            {activeTab === "Call Logs" && (
+              <div className="space-y-6">
+                <div className="text-center py-8">
+                  <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-4">
+                    Call Logs & History
+                  </h2>
+                  <p className="text-gray-600 dark:text-gray-300">
+                    View detailed call logs, duration, caller information, and
+                    recordings.
+                  </p>
+                </div>
+                <CallLogs />
               </div>
             )}
 

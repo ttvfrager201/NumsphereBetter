@@ -28,10 +28,14 @@ export default function FlowCanvas({
 }: FlowCanvasProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
+  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
   const draggedBlock = useRef<{
     id: string;
     offset: { x: number; y: number };
   } | null>(null);
+  const isPanning = useRef(false);
+  const panStart = useRef({ x: 0, y: 0 });
+  const lastPanOffset = useRef({ x: 0, y: 0 });
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent, blockId: string) => {
@@ -48,27 +52,64 @@ export default function FlowCanvas({
       };
 
       e.preventDefault();
+      e.stopPropagation();
     },
     [blocks],
   );
 
+  const handleCanvasMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      if (
+        e.target === e.currentTarget ||
+        (e.target as HTMLElement).closest(".canvas-background")
+      ) {
+        isPanning.current = true;
+        panStart.current = { x: e.clientX, y: e.clientY };
+        lastPanOffset.current = { ...panOffset };
+        e.preventDefault();
+      }
+    },
+    [panOffset],
+  );
+
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
+      if (isPanning.current) {
+        const deltaX = e.clientX - panStart.current.x;
+        const deltaY = e.clientY - panStart.current.y;
+        setPanOffset({
+          x: lastPanOffset.current.x + deltaX,
+          y: lastPanOffset.current.y + deltaY,
+        });
+        return;
+      }
+
       if (!draggedBlock.current || !canvasRef.current) return;
 
       const canvasRect = canvasRef.current.getBoundingClientRect();
-      const newX = e.clientX - canvasRect.left - draggedBlock.current.offset.x;
-      const newY = e.clientY - canvasRect.top - draggedBlock.current.offset.y;
+      const newX =
+        (e.clientX -
+          canvasRect.left -
+          draggedBlock.current.offset.x -
+          panOffset.x) /
+        zoom;
+      const newY =
+        (e.clientY -
+          canvasRect.top -
+          draggedBlock.current.offset.y -
+          panOffset.y) /
+        zoom;
 
       onBlockUpdate(draggedBlock.current.id, {
         position: { x: Math.max(0, newX), y: Math.max(0, newY) },
       });
     },
-    [onBlockUpdate],
+    [onBlockUpdate, zoom, panOffset],
   );
 
   const handleMouseUp = useCallback(() => {
     draggedBlock.current = null;
+    isPanning.current = false;
   }, []);
 
   const handleBlockClick = useCallback(
@@ -93,13 +134,19 @@ export default function FlowCanvas({
 
   const handleResetZoom = useCallback(() => {
     setZoom(1);
+    setPanOffset({ x: 0, y: 0 });
   }, []);
 
   return (
     <div
       ref={canvasRef}
       className="relative bg-gray-50 rounded-lg h-full border border-gray-200 overflow-hidden"
-      style={{ width: "100%", height: "100%" }}
+      style={{
+        width: "100%",
+        height: "100%",
+        cursor: isPanning.current ? "grabbing" : "grab",
+      }}
+      onMouseDown={handleCanvasMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
@@ -138,11 +185,11 @@ export default function FlowCanvas({
         </div>
       </div>
       <div
-        className="absolute inset-0 overflow-auto"
+        className="absolute inset-0 overflow-hidden canvas-background"
         style={{
           minHeight: "2000px",
           minWidth: "3000px",
-          transform: `scale(${zoom})`,
+          transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${zoom})`,
           transformOrigin: "0 0",
         }}
       >
