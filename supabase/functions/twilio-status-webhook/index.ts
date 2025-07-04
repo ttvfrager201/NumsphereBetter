@@ -126,14 +126,24 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Update minutes used if call is completed
+    // Update minutes used if call is completed - get exact seconds from Twilio
     if (callStatus === "completed" && callDuration) {
-      const durationMinutes = Math.ceil(parseInt(callDuration) / 60);
+      const exactSeconds = parseInt(callDuration);
+      // Convert seconds to minutes with proper rounding (billing minute = any part of a minute)
+      const billingMinutes =
+        exactSeconds > 0 ? Math.ceil(exactSeconds / 60) : 0;
+
+      console.log(`[twilio-status-webhook] Call duration details:`, {
+        exactSeconds,
+        billingMinutes,
+        phoneNumber: twilioNumber.phone_number,
+        callSid,
+      });
 
       const { error: updateError } = await supabase
         .from("twilio_numbers")
         .update({
-          minutes_used: (twilioNumber.minutes_used || 0) + durationMinutes,
+          minutes_used: (twilioNumber.minutes_used || 0) + billingMinutes,
           updated_at: new Date().toISOString(),
         })
         .eq("id", twilioNumber.id);
@@ -145,7 +155,45 @@ Deno.serve(async (req) => {
         );
       } else {
         console.log(
-          `[twilio-status-webhook] Updated minutes for ${twilioNumber.phone_number}: +${durationMinutes} minutes`,
+          `[twilio-status-webhook] Updated minutes for ${twilioNumber.phone_number}: +${billingMinutes} minutes (${exactSeconds} seconds)`,
+        );
+      }
+
+      // Also store the call log with exact duration
+      try {
+        const { error: logError } = await supabase.from("call_logs").upsert(
+          {
+            call_sid: callSid,
+            from_number: from || "",
+            to_number: to || "",
+            direction: direction || "unknown",
+            call_status: callStatus,
+            call_duration: exactSeconds,
+            call_minutes: billingMinutes,
+            started_at: new Date().toISOString(),
+            ended_at: new Date().toISOString(),
+            twilio_number_id: twilioNumber.id,
+            user_id: twilioNumber.user_id,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+          {
+            onConflict: "call_sid",
+          },
+        );
+
+        if (logError) {
+          console.error(
+            `[twilio-status-webhook] Error storing call log:`,
+            logError,
+          );
+        } else {
+          console.log(`[twilio-status-webhook] Stored call log for ${callSid}`);
+        }
+      } catch (logStoreError) {
+        console.error(
+          `[twilio-status-webhook] Error storing call log:`,
+          logStoreError,
         );
       }
     }

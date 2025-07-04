@@ -27,8 +27,8 @@ CREATE INDEX IF NOT EXISTS idx_call_logs_call_sid ON call_logs(call_sid);
 CREATE INDEX IF NOT EXISTS idx_call_logs_created_at ON call_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_call_logs_direction ON call_logs(direction);
 
--- Enable realtime for call logs
-ALTER PUBLICATION supabase_realtime ADD TABLE call_logs;
+-- Enable realtime for call logs (skip if already added)
+-- ALTER PUBLICATION supabase_realtime ADD TABLE call_logs;
 
 -- Create function to automatically update minutes used
 CREATE OR REPLACE FUNCTION update_number_minutes_on_call_completion()

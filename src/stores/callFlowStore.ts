@@ -13,7 +13,8 @@ export interface FlowBlock {
     | "record"
     | "play"
     | "sms"
-    | "hold";
+    | "hold"
+    | "multi_forward";
   position: { x: number; y: number };
   config: {
     text?: string;
@@ -27,6 +28,9 @@ export interface FlowBlock {
       blockId?: string;
     }>;
     number?: string;
+    numbers?: string[]; // For multi-forward enterprise feature
+    forwardStrategy?: "simultaneous" | "sequential" | "priority"; // Enterprise forwarding strategies
+    ringTimeout?: number; // Timeout for each number in sequential mode
     timeout?: number;
     holdMusicUrl?: string;
     holdMusicLoop?: number;

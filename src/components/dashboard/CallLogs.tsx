@@ -88,6 +88,7 @@ export default function CallLogs({ phoneNumber }: CallLogsProps = {}) {
             {
               body: {
                 phoneNumber: phoneNumber,
+                userId: user.id,
                 limit: 100,
               },
             },
@@ -136,62 +137,128 @@ export default function CallLogs({ phoneNumber }: CallLogsProps = {}) {
           });
         }
 
-        // Transform Twilio data to match our interface
-        const transformedLogs = (twilioData?.calls || []).map((call: any) => ({
-          id: call.sid,
-          call_sid: call.sid,
-          from_number: call.from,
-          to_number: call.to,
-          direction: call.direction === "inbound" ? "inbound" : "outbound",
-          call_status: call.status,
-          call_duration: call.duration ? parseInt(call.duration) : null,
-          call_minutes: call.duration
-            ? Math.ceil(parseInt(call.duration) / 60)
-            : null,
-          started_at: call.start_time,
-          ended_at: call.end_time,
-          recording_url: null, // Twilio recordings would need separate API call
-          transcription: null,
-          created_at: call.start_time,
-        }));
+        // Transform Twilio data to match our interface with exact seconds
+        const transformedLogs = (twilioData?.calls || []).map((call: any) => {
+          const exactSeconds =
+            call.exact_seconds || (call.duration ? parseInt(call.duration) : 0);
+          const billingMinutes =
+            call.billing_minutes ||
+            (exactSeconds > 0 ? Math.ceil(exactSeconds / 60) : 0);
+
+          return {
+            id: call.sid,
+            call_sid: call.sid,
+            from_number: call.from,
+            to_number: call.to,
+            direction: call.direction === "inbound" ? "inbound" : "outbound",
+            call_status: call.status,
+            call_duration: exactSeconds,
+            call_minutes: billingMinutes,
+            started_at: call.start_time,
+            ended_at: call.end_time,
+            recording_url: null, // Twilio recordings would need separate API call
+            transcription: null,
+            created_at: call.start_time,
+          };
+        });
 
         setCallLogs(transformedLogs);
         console.log(
           `Loaded ${transformedLogs.length} call logs from Twilio for ${phoneNumber}`,
         );
       } else {
-        // Get call logs from the call_logs table with proper joins
-        const { data: callLogsData, error: callLogsError } = await supabase
-          .from("call_logs")
-          .select(
-            `
-            *,
-            twilio_numbers (
-              phone_number,
-              friendly_name
-            )
-          `,
-          )
-          .eq("user_id", user.id)
-          .order("created_at", { ascending: false })
-          .limit(100);
+        // Get call logs filtered by user's subscribed numbers
+        console.log(
+          "Fetching call logs for user's subscribed numbers:",
+          user.id,
+        );
+
+        const { data: callLogsData, error: callLogsError } =
+          await supabase.functions.invoke(
+            "supabase-functions-get-twilio-call-logs",
+            {
+              body: {
+                userId: user.id,
+                limit: 100,
+                filterByUserNumbers: true,
+              },
+            },
+          );
+
+        console.log("Call logs function response:", {
+          data: callLogsData,
+          error: callLogsError,
+          hasData: !!callLogsData,
+          hasError: !!callLogsError,
+        });
 
         if (callLogsError) {
           console.error("Error fetching call logs:", callLogsError);
           toast({
             title: "Error",
-            description: "Failed to load call logs. Please try again.",
+            description:
+              callLogsError.message ||
+              "Failed to load call logs. Please try again.",
             variant: "destructive",
           });
           setCallLogs([]);
           return;
         }
 
-        // Set the actual call logs data (empty array if no logs)
-        setCallLogs(callLogsData || []);
+        if (!callLogsData) {
+          console.warn("No data returned from call logs function");
+          setCallLogs([]);
+          return;
+        }
 
-        if (callLogsData && callLogsData.length > 0) {
-          console.log(`Loaded ${callLogsData.length} call logs`);
+        // Transform the data to match our interface with exact seconds
+        const transformedLogs = (callLogsData?.calls || []).map((call: any) => {
+          const exactSeconds =
+            call.exact_seconds || (call.duration ? parseInt(call.duration) : 0);
+          const billingMinutes =
+            call.billing_minutes ||
+            (exactSeconds > 0 ? Math.ceil(exactSeconds / 60) : 0);
+
+          return {
+            id: call.sid,
+            call_sid: call.sid,
+            from_number: call.from,
+            to_number: call.to,
+            direction: call.direction === "inbound" ? "inbound" : "outbound",
+            call_status: call.status,
+            call_duration: exactSeconds,
+            call_minutes: billingMinutes,
+            started_at: call.start_time,
+            ended_at: call.end_time,
+            recording_url: null,
+            transcription: null,
+            created_at: call.start_time,
+          };
+        });
+
+        setCallLogs(transformedLogs);
+        console.log(`Loaded ${transformedLogs.length} call logs from function`);
+
+        // Show demo mode notification if applicable
+        if (callLogsData.demo_mode) {
+          toast({
+            title: "Demo Mode",
+            description:
+              callLogsData.message ||
+              "Showing sample data for your subscribed number. Configure Twilio credentials for real call logs.",
+            variant: "default",
+          });
+        }
+
+        // Show info about filtered numbers
+        if (
+          callLogsData.filtered_by_user_numbers &&
+          callLogsData.filtered_by_user_numbers.length > 0
+        ) {
+          console.log(
+            "Call logs filtered by user numbers:",
+            callLogsData.filtered_by_user_numbers,
+          );
         }
       }
     } catch (error) {
@@ -452,14 +519,19 @@ export default function CallLogs({ phoneNumber }: CallLogsProps = {}) {
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <Clock className="h-4 w-4 text-gray-500" />
-                          <span className="font-mono text-sm">
-                            {log.call_duration ? `${log.call_duration}s` : "0s"}
-                          </span>
-                          {log.call_minutes && log.call_minutes > 0 && (
-                            <span className="text-xs text-gray-500">
-                              ({formatDuration(log.call_duration)})
+                          <div className="flex flex-col">
+                            <span className="font-mono text-sm">
+                              {log.call_duration
+                                ? `${log.call_duration}s`
+                                : "0s"}
                             </span>
-                          )}
+                            {log.call_minutes && log.call_minutes > 0 && (
+                              <span className="text-xs text-blue-600 font-medium">
+                                Billed: {log.call_minutes} min
+                                {log.call_minutes !== 1 ? "s" : ""}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </TableCell>
                       <TableCell>
