@@ -158,6 +158,13 @@ Deno.serve(async (req) => {
       (flow: any) => flow.is_active,
     );
 
+    console.log(`[handle-call] Active flow found:`, {
+      hasFlow: !!activeFlow,
+      flowName: activeFlow?.flow_name,
+      hasConfig: !!activeFlow?.flow_config,
+      configType: typeof activeFlow?.flow_config,
+    });
+
     let twiml;
     if (activeFlow && activeFlow.flow_config) {
       // Use configured flow
@@ -218,12 +225,23 @@ function generateTwiMLFromFlow(
     const config =
       typeof flowConfig === "string" ? JSON.parse(flowConfig) : flowConfig;
 
+    console.log(`[generateTwiMLFromFlow] Processing config:`, {
+      hasBlocks: !!(config.blocks && Array.isArray(config.blocks)),
+      blocksCount: config.blocks?.length || 0,
+      voice: config.voice,
+      version: config.version,
+    });
+
     let twiml = `<?xml version="1.0" encoding="UTF-8"?>\n<Response>\n`;
 
     // Add status callback for call tracking
     const statusCallback = `${context.webhookUrl}?callSid=${context.callSid}`;
 
-    if (config.blocks && Array.isArray(config.blocks)) {
+    if (
+      config.blocks &&
+      Array.isArray(config.blocks) &&
+      config.blocks.length > 0
+    ) {
       // New block-based format
       twiml += generateBlockBasedTwiML(
         config.blocks,
@@ -231,12 +249,17 @@ function generateTwiMLFromFlow(
         statusCallback,
       );
     } else {
-      // Legacy format
+      // Legacy format or fallback
+      console.log(`[generateTwiMLFromFlow] Using legacy format or fallback`);
       twiml += generateLegacyTwiML(config, statusCallback);
     }
 
     twiml += `</Response>`;
 
+    console.log(
+      `[generateTwiMLFromFlow] Generated TwiML:`,
+      twiml.substring(0, 200) + "...",
+    );
     return twiml;
   } catch (error) {
     console.error("Error generating TwiML from flow:", error);
@@ -250,32 +273,76 @@ function generateBlockBasedTwiML(
   statusCallback: string,
 ): string {
   let twiml = "";
+  const processedBlocks = new Set<string>();
 
-  for (const block of blocks) {
+  console.log(`[generateBlockBasedTwiML] Processing ${blocks.length} blocks`);
+
+  // Find the first block (one with no incoming connections)
+  const firstBlock =
+    blocks.find(
+      (block) =>
+        !blocks.some((b) => b.connections && b.connections.includes(block.id)),
+    ) || blocks[0];
+
+  console.log(`[generateBlockBasedTwiML] First block:`, {
+    id: firstBlock?.id,
+    type: firstBlock?.type,
+    hasConfig: !!firstBlock?.config,
+  });
+
+  if (!firstBlock) {
+    console.log(`[generateBlockBasedTwiML] No first block found`);
+    return twiml;
+  }
+
+  // Process blocks in connection order
+  function processBlock(block: any): string {
+    if (processedBlocks.has(block.id)) return "";
+    processedBlocks.add(block.id);
+
+    console.log(`[processBlock] Processing block:`, {
+      id: block.id,
+      type: block.type,
+      config: block.config,
+    });
+
+    let blockTwiml = "";
+
     switch (block.type) {
       case "say":
         if (block.config.text) {
-          twiml += `  <Say voice="${voice}">${escapeXml(block.config.text)}</Say>\n`;
+          blockTwiml += `  <Say voice="${voice}">${escapeXml(block.config.text)}</Say>\n`;
         }
         break;
 
       case "pause":
         const duration = block.config.duration || 2;
-        twiml += `  <Pause length="${duration}"/>\n`;
+        blockTwiml += `  <Pause length="${duration}"/>\n`;
         break;
 
       case "gather":
         if (block.config.prompt) {
-          twiml += `  <Gather input="dtmf" timeout="10" numDigits="1">\n`;
-          twiml += `    <Say voice="${voice}">${escapeXml(block.config.prompt)}</Say>\n`;
-          twiml += `  </Gather>\n`;
+          // For gather blocks, we need to handle the menu options
+          const baseUrl = statusCallback
+            .split("?")[0]
+            .replace("handle-call-status", "handle-gather");
+          const gatherUrl = `${baseUrl}?blockId=${block.id}`;
+          blockTwiml += `  <Gather input="dtmf" timeout="10" numDigits="1" action="${gatherUrl}">\n`;
+          blockTwiml += `    <Say voice="${voice}">${escapeXml(block.config.prompt)}</Say>\n`;
+          blockTwiml += `  </Gather>\n`;
+
+          // Add default action if no input - say invalid and hangup
+          blockTwiml += `  <Say voice="${voice}">Sorry, I didn't receive any input. Please try calling again.</Say>\n`;
+          blockTwiml += `  <Hangup/>\n`;
+
+          return blockTwiml; // Don't process connections here as gather handles routing
         }
         break;
 
       case "forward":
         if (block.config.number) {
           const timeout = block.config.timeout || 30;
-          twiml += `  <Dial timeout="${timeout}" callerId="${block.config.number}" statusCallback="${statusCallback}">${block.config.number}</Dial>\n`;
+          blockTwiml += `  <Dial timeout="${timeout}" statusCallback="${statusCallback}">${block.config.number}</Dial>\n`;
         }
         break;
 
@@ -283,30 +350,45 @@ function generateBlockBasedTwiML(
         const maxLength = block.config.maxLength || 300;
         const finishOnKey = block.config.finishOnKey || "#";
         if (block.config.prompt) {
-          twiml += `  <Say voice="${voice}">${escapeXml(block.config.prompt)}</Say>\n`;
+          blockTwiml += `  <Say voice="${voice}">${escapeXml(block.config.prompt)}</Say>\n`;
         }
-        twiml += `  <Record maxLength="${maxLength}" finishOnKey="${finishOnKey}" transcribe="true"/>\n`;
+        blockTwiml += `  <Record maxLength="${maxLength}" finishOnKey="${finishOnKey}" transcribe="true"/>\n`;
         break;
 
       case "play":
         if (block.config.url) {
-          twiml += `  <Play>${escapeXml(block.config.url)}</Play>\n`;
+          blockTwiml += `  <Play>${escapeXml(block.config.url)}</Play>\n`;
         }
         break;
 
       case "sms":
         if (block.config.message) {
           const to = block.config.to || "{{From}}";
-          twiml += `  <Sms to="${to}">${escapeXml(block.config.message)}</Sms>\n`;
+          blockTwiml += `  <Sms to="${to}">${escapeXml(block.config.message)}</Sms>\n`;
         }
         break;
 
       case "hangup":
-        twiml += `  <Hangup/>\n`;
-        break;
+        blockTwiml += `  <Hangup/>\n`;
+        return blockTwiml; // Don't process further connections after hangup
     }
+
+    // Process connected blocks (except for gather which handles its own routing)
+    if (
+      block.type !== "gather" &&
+      block.connections &&
+      block.connections.length > 0
+    ) {
+      const nextBlock = blocks.find((b) => b.id === block.connections[0]);
+      if (nextBlock) {
+        blockTwiml += processBlock(nextBlock);
+      }
+    }
+
+    return blockTwiml;
   }
 
+  twiml = processBlock(firstBlock);
   return twiml;
 }
 

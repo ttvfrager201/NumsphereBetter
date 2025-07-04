@@ -46,6 +46,8 @@ import {
   ChevronDown,
   ChevronUp,
   Wand2,
+  ArrowDown,
+  Link,
 } from "lucide-react";
 import { useAuth } from "../../../supabase/auth";
 import { supabase } from "../../../supabase/supabase";
@@ -254,6 +256,8 @@ export default function CallFlowManager() {
   const [showPresets, setShowPresets] = useState(false);
   const [showBlockPalette, setShowBlockPalette] = useState(true);
   const [isPlayingVoice, setIsPlayingVoice] = useState<string | null>(null);
+  const [connectingFrom, setConnectingFrom] = useState<string | null>(null);
+  const [draggedBlock, setDraggedBlock] = useState<FlowBlock | null>(null);
   const { user } = useAuth();
   const { toast } = useToast();
 
@@ -404,20 +408,70 @@ export default function CallFlowManager() {
     });
   };
 
-  const addBlock = (blockType: any) => {
+  const addBlock = (blockType: any, connectToBlockId?: string) => {
+    // Calculate proper positioning to avoid overlaps
+    let newX = 100;
+    let newY = 100;
+
+    if (connectToBlockId) {
+      const parentBlock = flowBlocks.find((b) => b.id === connectToBlockId);
+      if (parentBlock) {
+        newX = parentBlock.position.x + 300; // Place to the right
+        newY = parentBlock.position.y;
+      }
+    } else {
+      // Find a free position by checking existing blocks
+      const gridSize = 150;
+      const maxCols = 4;
+      let row = 0;
+      let col = 0;
+
+      while (true) {
+        newX = 100 + col * 300;
+        newY = 100 + row * gridSize;
+
+        // Check if this position is occupied
+        const occupied = flowBlocks.some(
+          (block) =>
+            Math.abs(block.position.x - newX) < 250 &&
+            Math.abs(block.position.y - newY) < 100,
+        );
+
+        if (!occupied) break;
+
+        col++;
+        if (col >= maxCols) {
+          col = 0;
+          row++;
+        }
+      }
+    }
+
     const newBlock: FlowBlock = {
       id: Date.now().toString(),
       type: blockType.type,
       config: { ...blockType.config },
-      position: {
-        x: 100 + flowBlocks.length * 50,
-        y: 100 + flowBlocks.length * 120,
-      },
+      position: { x: newX, y: newY },
       connections: [],
     };
 
-    setFlowBlocks([...flowBlocks, newBlock]);
+    // If connecting to an existing block, update its connections
+    if (connectToBlockId) {
+      setFlowBlocks((blocks) =>
+        blocks
+          .map((block) =>
+            block.id === connectToBlockId
+              ? { ...block, connections: [...block.connections, newBlock.id] }
+              : block,
+          )
+          .concat(newBlock),
+      );
+    } else {
+      setFlowBlocks([...flowBlocks, newBlock]);
+    }
+
     setSelectedBlock(newBlock);
+    setConnectingFrom(null);
   };
 
   const updateBlock = (blockId: string, updates: Partial<FlowBlock>) => {
@@ -433,10 +487,44 @@ export default function CallFlowManager() {
   };
 
   const deleteBlock = (blockId: string) => {
-    setFlowBlocks((blocks) => blocks.filter((block) => block.id !== blockId));
+    // Remove connections to this block from other blocks
+    setFlowBlocks((blocks) =>
+      blocks
+        .filter((block) => block.id !== blockId)
+        .map((block) => ({
+          ...block,
+          connections: block.connections.filter((connId) => connId !== blockId),
+        })),
+    );
     if (selectedBlock?.id === blockId) {
       setSelectedBlock(null);
     }
+  };
+
+  const connectBlocks = (fromBlockId: string, toBlockId: string) => {
+    setFlowBlocks((blocks) =>
+      blocks.map((block) =>
+        block.id === fromBlockId
+          ? {
+              ...block,
+              connections: [...new Set([...block.connections, toBlockId])],
+            }
+          : block,
+      ),
+    );
+  };
+
+  const disconnectBlocks = (fromBlockId: string, toBlockId: string) => {
+    setFlowBlocks((blocks) =>
+      blocks.map((block) =>
+        block.id === fromBlockId
+          ? {
+              ...block,
+              connections: block.connections.filter((id) => id !== toBlockId),
+            }
+          : block,
+      ),
+    );
   };
 
   const playVoiceDemo = async (voice: string) => {
@@ -555,16 +643,13 @@ export default function CallFlowManager() {
 
       // Update Twilio webhook URLs
       const { data: webhookData, error: webhookError } =
-        await supabase.functions.invoke(
-          "supabase-functions-manage-call-flows",
-          {
-            body: {
-              action: "update_webhooks",
-              userId: user.id,
-              twilioNumberId: selectedNumberId,
-            },
+        await supabase.functions.invoke("manage-call-flows", {
+          body: {
+            action: "update_webhooks",
+            userId: user.id,
+            twilioNumberId: selectedNumberId,
           },
-        );
+        });
 
       if (webhookError) {
         console.error("Webhook update error:", webhookError);
@@ -843,68 +928,86 @@ export default function CallFlowManager() {
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <Label>Phone Number</Label>
-                  <Select
-                    value={selectedNumberId}
-                    onValueChange={setSelectedNumberId}
+                {/* Quick Test Button */}
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="text-sm font-medium text-blue-900 mb-2">
+                    🚀 Quick Test
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      if (!selectedNumberId) {
+                        toast({
+                          title: "Select a phone number first",
+                          description:
+                            "Choose a phone number to create a test flow.",
+                          variant: "destructive",
+                        });
+                        return;
+                      }
+                      setFlowName("Test Call Flow");
+                      setFlowBlocks([
+                        {
+                          id: "1",
+                          type: "say",
+                          config: {
+                            text: "Hello! This is a test call flow. Press 1 to continue or 2 to end the call.",
+                          },
+                          position: { x: 100, y: 100 },
+                          connections: ["2"],
+                        },
+                        {
+                          id: "2",
+                          type: "gather",
+                          config: {
+                            prompt:
+                              "Press 1 to hear a message, or press 2 to end the call.",
+                            options: [
+                              {
+                                digit: "1",
+                                action: "say",
+                                text: "Great! The call flow is working perfectly.",
+                              },
+                              {
+                                digit: "2",
+                                action: "hangup",
+                                text: "Goodbye!",
+                              },
+                            ],
+                          },
+                          position: { x: 400, y: 100 },
+                          connections: ["3"],
+                        },
+                        {
+                          id: "3",
+                          type: "say",
+                          config: {
+                            text: "Thank you for testing NumSphere. Goodbye!",
+                          },
+                          position: { x: 700, y: 100 },
+                          connections: ["4"],
+                        },
+                        {
+                          id: "4",
+                          type: "hangup",
+                          config: {},
+                          position: { x: 1000, y: 100 },
+                          connections: [],
+                        },
+                      ]);
+                      toast({
+                        title: "Test Flow Created!",
+                        description:
+                          "A simple test flow has been loaded. Save it and try calling your number!",
+                      });
+                    }}
+                    className="w-full"
                   >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select a phone number" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {twilioNumbers.map((number) => (
-                        <SelectItem key={number.id} value={number.id}>
-                          {formatPhoneNumber(number.phone_number)}
-                          {number.friendly_name && ` (${number.friendly_name})`}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Voice Selection with Demos */}
-                <div className="space-y-2">
-                  <Label>Voice Selection</Label>
-                  <div className="space-y-2 max-h-48 overflow-y-auto">
-                    {VOICE_OPTIONS.map((voice) => (
-                      <div
-                        key={voice.value}
-                        className={`p-3 border rounded-lg cursor-pointer transition-all ${
-                          selectedVoice === voice.value
-                            ? "border-blue-500 bg-blue-50"
-                            : "border-gray-200 hover:border-gray-300"
-                        }`}
-                        onClick={() => setSelectedVoice(voice.value)}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex-1">
-                            <div className="font-medium text-sm">
-                              {voice.label}
-                            </div>
-                            <div className="text-xs text-gray-500">
-                              {voice.accent} Accent
-                            </div>
-                          </div>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              playVoiceDemo(voice.value);
-                            }}
-                            disabled={isPlayingVoice === voice.value}
-                            className="h-8 w-8 p-0"
-                          >
-                            {isPlayingVoice === voice.value ? (
-                              <LoadingSpinner size="sm" />
-                            ) : (
-                              <Volume2 className="h-4 w-4" />
-                            )}
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
+                    Create Test Flow
+                  </Button>
+                  <div className="text-xs text-blue-600 mt-1">
+                    Creates a simple flow to test your phone number
                   </div>
                 </div>
               </div>
@@ -963,7 +1066,13 @@ export default function CallFlowManager() {
                         <div
                           key={blockType.type}
                           className="p-3 border rounded-lg hover:bg-gray-50 cursor-pointer transition-all"
-                          onClick={() => addBlock(blockType)}
+                          onClick={() => {
+                            if (connectingFrom) {
+                              addBlock(blockType, connectingFrom);
+                            } else {
+                              addBlock(blockType);
+                            }
+                          }}
                         >
                           <div className="flex items-center gap-2 mb-1">
                             <div
@@ -988,7 +1097,7 @@ export default function CallFlowManager() {
 
             {/* Main Canvas */}
             <div className="flex-1 relative bg-gray-50 rounded-lg overflow-auto">
-              <div className="absolute inset-0 p-4">
+              <div className="relative min-h-[800px] min-w-[1200px] p-4">
                 {flowBlocks.length === 0 ? (
                   <div className="flex items-center justify-center h-full">
                     <div className="text-center">
@@ -1003,8 +1112,63 @@ export default function CallFlowManager() {
                     </div>
                   </div>
                 ) : (
-                  <div className="relative">
-                    {flowBlocks.map((block, index) => {
+                  <div className="relative min-h-[600px]">
+                    {/* Connection Lines */}
+                    {flowBlocks.map((block) =>
+                      block.connections.map((connectedId) => {
+                        const connectedBlock = flowBlocks.find(
+                          (b) => b.id === connectedId,
+                        );
+                        if (!connectedBlock) return null;
+
+                        const startX = block.position.x + 192; // block width
+                        const startY = block.position.y + 40; // block center
+                        const endX = connectedBlock.position.x;
+                        const endY = connectedBlock.position.y + 40;
+
+                        return (
+                          <svg
+                            key={`${block.id}-${connectedId}`}
+                            className="absolute pointer-events-none"
+                            style={{
+                              left: Math.min(startX, endX),
+                              top: Math.min(startY, endY),
+                              width: Math.abs(endX - startX),
+                              height: Math.abs(endY - startY) + 20,
+                            }}
+                          >
+                            <defs>
+                              <marker
+                                id="arrowhead"
+                                markerWidth="10"
+                                markerHeight="7"
+                                refX="9"
+                                refY="3.5"
+                                orient="auto"
+                              >
+                                <polygon
+                                  points="0 0, 10 3.5, 0 7"
+                                  fill="#6b7280"
+                                />
+                              </marker>
+                            </defs>
+                            <line
+                              x1={startX > endX ? Math.abs(endX - startX) : 0}
+                              y1={startY > endY ? Math.abs(endY - startY) : 0}
+                              x2={startX > endX ? 0 : Math.abs(endX - startX)}
+                              y2={startY > endY ? 0 : Math.abs(endY - startY)}
+                              stroke="#6b7280"
+                              strokeWidth="2"
+                              strokeDasharray="5,5"
+                              markerEnd="url(#arrowhead)"
+                            />
+                          </svg>
+                        );
+                      }),
+                    )}
+
+                    {/* Blocks */}
+                    {flowBlocks.map((block) => {
                       const blockType = BLOCK_TYPES.find(
                         (bt) => bt.type === block.type,
                       );
@@ -1012,33 +1176,34 @@ export default function CallFlowManager() {
 
                       return (
                         <div key={block.id}>
-                          {/* Connection Line */}
-                          {index > 0 && (
-                            <div
-                              className="absolute border-l-2 border-gray-300 border-dashed"
-                              style={{
-                                left: block.position.x + 100,
-                                top: flowBlocks[index - 1].position.y + 80,
-                                height:
-                                  block.position.y -
-                                  flowBlocks[index - 1].position.y -
-                                  80,
-                              }}
-                            />
-                          )}
-
                           {/* Block */}
                           <div
-                            className={`absolute w-48 p-4 bg-white border-2 rounded-lg shadow-sm cursor-pointer transition-all ${
+                            className={`absolute w-48 min-h-[100px] p-4 bg-white border-2 rounded-lg shadow-sm cursor-pointer transition-all z-10 ${
                               selectedBlock?.id === block.id
-                                ? "border-blue-500 shadow-lg"
-                                : "border-gray-200 hover:border-gray-300"
+                                ? "border-blue-500 shadow-lg z-20"
+                                : connectingFrom === block.id
+                                  ? "border-green-500 shadow-lg bg-green-50 z-20"
+                                  : "border-gray-200 hover:border-gray-300 hover:shadow-md"
                             }`}
                             style={{
                               left: block.position.x,
                               top: block.position.y,
+                              transform:
+                                selectedBlock?.id === block.id
+                                  ? "scale(1.02)"
+                                  : "scale(1)",
                             }}
-                            onClick={() => setSelectedBlock(block)}
+                            onClick={() => {
+                              if (
+                                connectingFrom &&
+                                connectingFrom !== block.id
+                              ) {
+                                connectBlocks(connectingFrom, block.id);
+                                setConnectingFrom(null);
+                              } else {
+                                setSelectedBlock(block);
+                              }
+                            }}
                           >
                             <div className="flex items-center gap-2 mb-2">
                               <div
@@ -1049,20 +1214,46 @@ export default function CallFlowManager() {
                               <span className="font-medium text-sm">
                                 {blockType?.label}
                               </span>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  deleteBlock(block.id);
-                                }}
-                                className="h-6 w-6 p-0 ml-auto text-red-500 hover:text-red-700"
-                              >
-                                <X className="h-3 w-3" />
-                              </Button>
+                              <div className="flex gap-1 ml-auto">
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setConnectingFrom(
+                                      connectingFrom === block.id
+                                        ? null
+                                        : block.id,
+                                    );
+                                  }}
+                                  className={`h-6 w-6 p-0 ${
+                                    connectingFrom === block.id
+                                      ? "text-green-600 bg-green-100"
+                                      : "text-blue-500 hover:text-blue-700"
+                                  }`}
+                                  title={
+                                    connectingFrom === block.id
+                                      ? "Cancel connection"
+                                      : "Connect to another block"
+                                  }
+                                >
+                                  <Link className="h-3 w-3" />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    deleteBlock(block.id);
+                                  }}
+                                  className="h-6 w-6 p-0 text-red-500 hover:text-red-700"
+                                >
+                                  <X className="h-3 w-3" />
+                                </Button>
+                              </div>
                             </div>
 
-                            <div className="text-xs text-gray-600">
+                            <div className="text-xs text-gray-600 mb-2">
                               {block.type === "say" && block.config.text && (
                                 <span>
                                   "{block.config.text.substring(0, 30)}..."
@@ -1088,10 +1279,35 @@ export default function CallFlowManager() {
                                 <span>📞 End call</span>
                               )}
                             </div>
+
+                            {/* Connection indicators */}
+                            {block.connections.length > 0 && (
+                              <div className="text-xs text-blue-600">
+                                → Connected to {block.connections.length} block
+                                {block.connections.length > 1 ? "s" : ""}
+                              </div>
+                            )}
                           </div>
                         </div>
                       );
                     })}
+
+                    {/* Connection helper text */}
+                    {connectingFrom && (
+                      <div className="absolute top-4 left-4 bg-green-100 border border-green-300 rounded-lg p-3 text-sm text-green-800">
+                        <div className="font-medium mb-1">
+                          🔗 Connection Mode Active
+                        </div>
+                        <div>
+                          Click another block to connect, or click the link icon
+                          again to cancel.
+                        </div>
+                        <div className="text-xs mt-1">
+                          You can also add a new block from the palette to
+                          auto-connect.
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1118,6 +1334,64 @@ export default function CallFlowManager() {
                         ?.label || "Block"}{" "}
                       Settings
                     </h3>
+                  </div>
+
+                  {/* Connection Management */}
+                  <div className="space-y-2">
+                    <Label>Connections</Label>
+                    <div className="text-sm text-gray-600 mb-2">
+                      This block connects to {selectedBlock.connections.length}{" "}
+                      other block
+                      {selectedBlock.connections.length !== 1 ? "s" : ""}
+                    </div>
+                    {selectedBlock.connections.map((connId) => {
+                      const connectedBlock = flowBlocks.find(
+                        (b) => b.id === connId,
+                      );
+                      const connectedBlockType = BLOCK_TYPES.find(
+                        (bt) => bt.type === connectedBlock?.type,
+                      );
+                      return connectedBlock ? (
+                        <div
+                          key={connId}
+                          className="flex items-center justify-between p-2 bg-gray-50 rounded"
+                        >
+                          <div className="flex items-center gap-2">
+                            <div
+                              className={`p-1 rounded ${connectedBlockType?.color || "bg-gray-500"} text-white`}
+                            >
+                              {(() => {
+                                const IconComponent =
+                                  connectedBlockType?.icon || Phone;
+                                return <IconComponent className="h-3 w-3" />;
+                              })()}
+                            </div>
+                            <span className="text-sm">
+                              {connectedBlockType?.label}
+                            </span>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() =>
+                              disconnectBlocks(selectedBlock.id, connId)
+                            }
+                            className="h-6 w-6 p-0 text-red-500 hover:text-red-700"
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      ) : null;
+                    })}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setConnectingFrom(selectedBlock.id)}
+                      className="w-full"
+                    >
+                      <Link className="h-4 w-4 mr-2" />
+                      Connect to Another Block
+                    </Button>
                   </div>
 
                   {/* Block-specific configuration */}

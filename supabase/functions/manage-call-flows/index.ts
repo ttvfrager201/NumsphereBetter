@@ -324,6 +324,122 @@ Deno.serve(async (req) => {
           },
         );
 
+      case "update_webhooks":
+        if (!twilioNumberId) {
+          return new Response(
+            JSON.stringify({ error: "Twilio number ID is required" }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        }
+
+        // Get Twilio credentials from environment
+        const twilioAccountSid = Deno.env.get("TWILIO_ACCOUNT_SID");
+        const twilioAuthToken = Deno.env.get("TWILIO_AUTH_TOKEN");
+        const baseUrl = Deno.env.get("SUPABASE_URL")?.replace("/rest/v1", "");
+
+        if (!twilioAccountSid || !twilioAuthToken || !baseUrl) {
+          return new Response(
+            JSON.stringify({
+              error: "Twilio credentials not configured",
+              details:
+                "Missing TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, or SUPABASE_URL",
+            }),
+            {
+              status: 500,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        }
+
+        try {
+          // Get the Twilio number details
+          const { data: twilioNumber } = await supabase
+            .from("twilio_numbers")
+            .select("twilio_sid, phone_number")
+            .eq("id", twilioNumberId)
+            .eq("user_id", userId)
+            .single();
+
+          if (!twilioNumber) {
+            return new Response(
+              JSON.stringify({ error: "Twilio number not found" }),
+              {
+                status: 404,
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+              },
+            );
+          }
+
+          // Update webhook URL using Twilio REST API
+          const webhookUrl = `${baseUrl}/functions/v1/handle-call`;
+          const statusCallbackUrl = `${baseUrl}/functions/v1/handle-call-status`;
+
+          const updateData = new URLSearchParams({
+            VoiceUrl: webhookUrl,
+            VoiceMethod: "POST",
+            StatusCallback: statusCallbackUrl,
+            StatusCallbackMethod: "POST",
+          });
+
+          const twilioResponse = await fetch(
+            `https://api.twilio.com/2010-04-01/Accounts/${twilioAccountSid}/IncomingPhoneNumbers/${twilioNumber.twilio_sid}.json`,
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Basic ${btoa(`${twilioAccountSid}:${twilioAuthToken}`)}`,
+                "Content-Type": "application/x-www-form-urlencoded",
+              },
+              body: updateData,
+            },
+          );
+
+          if (!twilioResponse.ok) {
+            const errorText = await twilioResponse.text();
+            console.error("Twilio webhook update failed:", errorText);
+            return new Response(
+              JSON.stringify({
+                error: "Failed to update Twilio webhook",
+                details: errorText,
+              }),
+              {
+                status: 500,
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+              },
+            );
+          }
+
+          const twilioResult = await twilioResponse.json();
+          console.log("Twilio webhook updated successfully:", twilioResult);
+
+          return new Response(
+            JSON.stringify({
+              message: "Webhook updated successfully",
+              webhookUrl,
+              statusCallbackUrl,
+              twilioSid: twilioNumber.twilio_sid,
+            }),
+            {
+              status: 200,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        } catch (error) {
+          console.error("Error updating webhook:", error);
+          return new Response(
+            JSON.stringify({
+              error: "Failed to update webhook",
+              details: error.message,
+            }),
+            {
+              status: 500,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        }
+
       default:
         return new Response(JSON.stringify({ error: "Invalid action" }), {
           status: 400,
