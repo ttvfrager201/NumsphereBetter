@@ -5,6 +5,13 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { FlowBlock } from "@/stores/callFlowStore";
 import { Settings, Plus, X, Link } from "lucide-react";
 
@@ -62,7 +69,10 @@ export default function BlockProperties({
   const addMenuOption = () => {
     const currentOptions = block.config.options || [];
     updateConfig({
-      options: [...currentOptions, { digit: "", text: "", action: "say" }],
+      options: [
+        ...currentOptions,
+        { digit: "", text: "", action: "say", blockId: "" },
+      ],
     });
   };
 
@@ -127,15 +137,39 @@ export default function BlockProperties({
 
         {/* Block-specific configuration */}
         {block.type === "say" && (
-          <div className="space-y-2">
-            <Label className="text-sm">Message Text</Label>
-            <Textarea
-              value={block.config.text || ""}
-              onChange={(e) => updateConfig({ text: e.target.value })}
-              placeholder="Enter the message to speak..."
-              rows={3}
-              className="text-sm"
-            />
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <Label className="text-sm">Message Text</Label>
+              <Textarea
+                value={block.config.text || ""}
+                onChange={(e) => updateConfig({ text: e.target.value })}
+                placeholder="Enter the message to speak..."
+                rows={3}
+                className="text-sm"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm">Speech Speed</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="range"
+                  min="0.5"
+                  max="2.0"
+                  step="0.1"
+                  value={block.config.speed || 1.0}
+                  onChange={(e) =>
+                    updateConfig({ speed: parseFloat(e.target.value) })
+                  }
+                  className="flex-1"
+                />
+                <span className="text-sm text-gray-600 min-w-[3rem]">
+                  {(block.config.speed || 1.0).toFixed(1)}x
+                </span>
+              </div>
+              <div className="text-xs text-gray-500">
+                0.5x = Slow • 1.0x = Normal • 2.0x = Fast
+              </div>
+            </div>
           </div>
         )}
 
@@ -158,32 +192,73 @@ export default function BlockProperties({
                 (option: any, index: number) => (
                   <div
                     key={index}
-                    className="flex gap-2 items-center p-2 bg-gray-50 rounded border"
+                    className="space-y-2 p-3 bg-gray-50 rounded border"
                   >
-                    <Input
-                      value={option.digit}
-                      onChange={(e) =>
-                        updateMenuOption(index, { digit: e.target.value })
-                      }
-                      placeholder="Key"
-                      className="w-12 h-8 text-sm text-center"
-                    />
-                    <Input
-                      value={option.text}
-                      onChange={(e) =>
-                        updateMenuOption(index, { text: e.target.value })
-                      }
-                      placeholder="Action description"
-                      className="flex-1 h-8 text-sm"
-                    />
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => removeMenuOption(index)}
-                      className="h-8 w-8 p-0 text-red-500"
-                    >
-                      <X className="h-3 w-3" />
-                    </Button>
+                    <div className="flex gap-2 items-center">
+                      <Input
+                        value={option.digit}
+                        onChange={(e) =>
+                          updateMenuOption(index, { digit: e.target.value })
+                        }
+                        placeholder="Key"
+                        className="w-12 h-8 text-sm text-center"
+                      />
+                      <Input
+                        value={option.text}
+                        onChange={(e) =>
+                          updateMenuOption(index, { text: e.target.value })
+                        }
+                        placeholder="Option description"
+                        className="flex-1 h-8 text-sm"
+                      />
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => removeMenuOption(index)}
+                        className="h-8 w-8 p-0 text-red-500"
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs text-gray-600">
+                        Connect to Block
+                      </Label>
+                      <Select
+                        value={option.blockId || "none"}
+                        onValueChange={(value) =>
+                          updateMenuOption(index, {
+                            blockId: value === "none" ? "" : value,
+                          })
+                        }
+                      >
+                        <SelectTrigger className="h-8 text-sm">
+                          <SelectValue placeholder="Select block to connect to" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">No connection</SelectItem>
+                          {allBlocks
+                            .filter((b) => b.id !== block.id)
+                            .map((b) => (
+                              <SelectItem key={b.id} value={b.id}>
+                                {BLOCK_LABELS[b.type]} -{" "}
+                                {b.config.text?.substring(0, 30) ||
+                                  b.config.prompt?.substring(0, 30) ||
+                                  b.config.number ||
+                                  "Block"}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                      {option.blockId && (
+                        <Badge variant="outline" className="text-xs">
+                          Connected to:{" "}
+                          {BLOCK_LABELS[
+                            allBlocks.find((b) => b.id === option.blockId)?.type
+                          ] || "Unknown"}
+                        </Badge>
+                      )}
+                    </div>
                   </div>
                 ),
               )}

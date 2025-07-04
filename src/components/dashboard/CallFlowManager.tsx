@@ -55,23 +55,11 @@ interface TwilioNumber {
   plan_id: string;
 }
 
-const VOICE_OPTIONS = [
-  { value: "alice", label: "Alice (Female, English)", accent: "US" },
-  { value: "man", label: "Man (Male, English)", accent: "US" },
-  { value: "woman", label: "Woman (Female, English)", accent: "US" },
-  { value: "Polly.Joanna", label: "Joanna (Female, Neural)", accent: "US" },
-  { value: "Polly.Matthew", label: "Matthew (Male, Neural)", accent: "US" },
-  { value: "Polly.Amy", label: "Amy (Female, British)", accent: "UK" },
-  { value: "Polly.Brian", label: "Brian (Male, British)", accent: "UK" },
-  { value: "Polly.Emma", label: "Emma (Female, British)", accent: "UK" },
-  { value: "Polly.Olivia", label: "Olivia (Female, Australian)", accent: "AU" },
-];
-
 export default function CallFlowManager() {
   const [twilioNumbers, setTwilioNumbers] = useState<TwilioNumber[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showFlowEditor, setShowFlowEditor] = useState(false);
-  const [isPlayingVoice, setIsPlayingVoice] = useState<string | null>(null);
+
   const { user } = useAuth();
   const { toast } = useToast();
 
@@ -81,7 +69,6 @@ export default function CallFlowManager() {
     blocks,
     selectedBlock,
     connectingFrom,
-    voice,
     flowName,
     selectedNumberId,
     isSaving,
@@ -97,7 +84,6 @@ export default function CallFlowManager() {
     disconnectBlocks,
     setSelectedBlock,
     setConnectingFrom,
-    setVoice,
     setFlowName,
     setSelectedNumberId,
     setCurrentFlow,
@@ -144,7 +130,6 @@ export default function CallFlowManager() {
   const handleEditFlow = (flow: any) => {
     setCurrentFlow(flow);
     setFlowName(flow.flow_name);
-    setVoice(flow.flow_config.voice || "alice");
     setSelectedNumberId(flow.twilio_number_id || "");
 
     if (flow.flow_config.blocks) {
@@ -277,6 +262,22 @@ export default function CallFlowManager() {
       return;
     }
 
+    // Check if another flow already exists for this number (unless we're editing the same flow)
+    const existingFlowForNumber = flows.find(
+      (flow) =>
+        flow.twilio_number_id === selectedNumberId &&
+        flow.id !== currentFlow?.id,
+    );
+
+    if (existingFlowForNumber) {
+      toast({
+        title: "Flow Already Exists",
+        description: `A call flow "${existingFlowForNumber.flow_name}" already exists for this phone number. Each number can only have one active flow.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
     const success = await saveFlow(user.id);
     if (success) {
       toast({
@@ -310,36 +311,6 @@ export default function CallFlowManager() {
         description: "Failed to delete call flow.",
         variant: "destructive",
       });
-    }
-  };
-
-  const playVoiceDemo = async (voiceOption: string) => {
-    setIsPlayingVoice(voiceOption);
-
-    const demoText =
-      "Hello! This is how I sound. Thank you for choosing our service.";
-
-    try {
-      if ("speechSynthesis" in window) {
-        const utterance = new SpeechSynthesisUtterance(demoText);
-        utterance.rate = 0.9;
-        utterance.pitch = voiceOption.includes("Polly") ? 1.1 : 1.0;
-
-        utterance.onend = () => {
-          setIsPlayingVoice(null);
-        };
-
-        speechSynthesis.speak(utterance);
-      } else {
-        toast({
-          title: `${voiceOption} Voice Demo`,
-          description: `"${demoText}"`,
-        });
-        setTimeout(() => setIsPlayingVoice(null), 3000);
-      }
-    } catch (error) {
-      console.error("Voice demo error:", error);
-      setIsPlayingVoice(null);
     }
   };
 
@@ -479,11 +450,6 @@ export default function CallFlowManager() {
                               flow.twilio_numbers?.phone_number || "",
                             )}
                           </Badge>
-                          {flow.flow_config.voice && (
-                            <Badge variant="outline" className="text-xs">
-                              🎵 {flow.flow_config.voice}
-                            </Badge>
-                          )}
                         </div>
                       </div>
                     </div>
@@ -581,49 +547,47 @@ export default function CallFlowManager() {
                         <SelectValue placeholder="Select a phone number" />
                       </SelectTrigger>
                       <SelectContent>
-                        {twilioNumbers.map((number) => (
-                          <SelectItem key={number.id} value={number.id}>
-                            {formatPhoneNumber(number.phone_number)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="voiceSelect" className="text-sm">
-                      Voice
-                    </Label>
-                    <Select value={voice} onValueChange={setVoice}>
-                      <SelectTrigger className="h-9">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {VOICE_OPTIONS.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            <div className="flex items-center justify-between w-full">
-                              <span>{option.label}</span>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  playVoiceDemo(option.value);
-                                }}
-                                className="h-6 w-6 p-0 ml-2"
-                                disabled={isPlayingVoice === option.value}
-                              >
-                                {isPlayingVoice === option.value ? (
-                                  <LoadingSpinner size="sm" />
-                                ) : (
-                                  <Volume2 className="h-3 w-3" />
+                        {twilioNumbers.map((number) => {
+                          const hasExistingFlow = flows.some(
+                            (flow) =>
+                              flow.twilio_number_id === number.id &&
+                              flow.id !== currentFlow?.id,
+                          );
+                          return (
+                            <SelectItem
+                              key={number.id}
+                              value={number.id}
+                              disabled={hasExistingFlow}
+                            >
+                              <div className="flex items-center justify-between w-full">
+                                <span>
+                                  {formatPhoneNumber(number.phone_number)}
+                                </span>
+                                {hasExistingFlow && (
+                                  <Badge
+                                    variant="secondary"
+                                    className="ml-2 text-xs"
+                                  >
+                                    Has Flow
+                                  </Badge>
                                 )}
-                              </Button>
-                            </div>
-                          </SelectItem>
-                        ))}
+                              </div>
+                            </SelectItem>
+                          );
+                        })}
                       </SelectContent>
                     </Select>
+                    {selectedNumberId &&
+                      flows.some(
+                        (flow) =>
+                          flow.twilio_number_id === selectedNumberId &&
+                          flow.id !== currentFlow?.id,
+                      ) && (
+                        <div className="text-xs text-amber-600 bg-amber-50 p-2 rounded border">
+                          ⚠️ This number already has a flow. Only one flow per
+                          number is allowed.
+                        </div>
+                      )}
                   </div>
                 </CardContent>
               </Card>
@@ -670,7 +634,7 @@ export default function CallFlowManager() {
                     ?.phone_number || "Select Number",
                 )}
               </Badge>
-              <Badge variant="outline">{voice}</Badge>
+
               <Badge variant="outline">{blocks.length} blocks</Badge>
             </div>
             <div className="flex gap-2">

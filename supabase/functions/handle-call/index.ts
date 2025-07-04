@@ -243,11 +243,7 @@ function generateTwiMLFromFlow(
       config.blocks.length > 0
     ) {
       // New block-based format
-      twiml += generateBlockBasedTwiML(
-        config.blocks,
-        config.voice || "alice",
-        statusCallback,
-      );
+      twiml += generateBlockBasedTwiML(config.blocks, "alice", statusCallback);
     } else {
       // Legacy format or fallback
       console.log(`[generateTwiMLFromFlow] Using legacy format or fallback`);
@@ -269,7 +265,7 @@ function generateTwiMLFromFlow(
 
 function generateBlockBasedTwiML(
   blocks: any[],
-  voice: string,
+  _voice: string,
   statusCallback: string,
 ): string {
   let twiml = "";
@@ -311,7 +307,9 @@ function generateBlockBasedTwiML(
     switch (block.type) {
       case "say":
         if (block.config.text) {
-          blockTwiml += `  <Say voice="${voice}">${escapeXml(block.config.text)}</Say>\n`;
+          const speed = block.config.speed || 1.0;
+          const rate = Math.max(0.5, Math.min(2.0, speed)); // Clamp between 0.5 and 2.0
+          blockTwiml += `  <Say voice="alice" rate="${rate}">${escapeXml(block.config.text)}</Say>\n`;
         }
         break;
 
@@ -328,11 +326,11 @@ function generateBlockBasedTwiML(
             .replace("handle-call-status", "handle-gather");
           const gatherUrl = `${baseUrl}?blockId=${block.id}`;
           blockTwiml += `  <Gather input="dtmf" timeout="10" numDigits="1" action="${gatherUrl}">\n`;
-          blockTwiml += `    <Say voice="${voice}">${escapeXml(block.config.prompt)}</Say>\n`;
+          blockTwiml += `    <Say voice="alice">${escapeXml(block.config.prompt)}</Say>\n`;
           blockTwiml += `  </Gather>\n`;
 
           // Add default action if no input - say invalid and hangup
-          blockTwiml += `  <Say voice="${voice}">Sorry, I didn't receive any input. Please try calling again.</Say>\n`;
+          blockTwiml += `  <Say voice="alice">Sorry, I didn't receive any input. Please try calling again.</Say>\n`;
           blockTwiml += `  <Hangup/>\n`;
 
           return blockTwiml; // Don't process connections here as gather handles routing
@@ -350,7 +348,7 @@ function generateBlockBasedTwiML(
         const maxLength = block.config.maxLength || 300;
         const finishOnKey = block.config.finishOnKey || "#";
         if (block.config.prompt) {
-          blockTwiml += `  <Say voice="${voice}">${escapeXml(block.config.prompt)}</Say>\n`;
+          blockTwiml += `  <Say voice="alice">${escapeXml(block.config.prompt)}</Say>\n`;
         }
         blockTwiml += `  <Record maxLength="${maxLength}" finishOnKey="${finishOnKey}" transcribe="true"/>\n`;
         break;
@@ -394,20 +392,19 @@ function generateBlockBasedTwiML(
 
 function generateLegacyTwiML(config: any, statusCallback: string): string {
   let twiml = "";
-  const voice = config.voice || "alice";
 
   if (config.greeting) {
-    twiml += `  <Say voice="${voice}">${escapeXml(config.greeting)}</Say>\n`;
+    twiml += `  <Say voice="alice">${escapeXml(config.greeting)}</Say>\n`;
   }
 
   if (config.menu && config.menu.options) {
     twiml += `  <Gather input="dtmf" timeout="10" numDigits="1">\n`;
-    twiml += `    <Say voice="${voice}">${escapeXml(config.menu.prompt || "Please select an option.")}</Say>\n`;
+    twiml += `    <Say voice="alice">${escapeXml(config.menu.prompt || "Please select an option.")}</Say>\n`;
     twiml += `  </Gather>\n`;
   }
 
   if (config.voicemail) {
-    twiml += `  <Say voice="${voice}">${escapeXml(config.voicemail.prompt || "Please leave a message after the beep.")}</Say>\n`;
+    twiml += `  <Say voice="alice">${escapeXml(config.voicemail.prompt || "Please leave a message after the beep.")}</Say>\n`;
     twiml += `  <Record maxLength="60" transcribe="true"/>\n`;
   }
 

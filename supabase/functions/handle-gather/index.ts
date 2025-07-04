@@ -71,6 +71,11 @@ Deno.serve(async (req) => {
       blockId,
     });
 
+    if (!digits) {
+      console.log(`[handle-gather] No digits received`);
+      return generateErrorTwiML("No input received. Please try again.");
+    }
+
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_KEY")!;
     const supabase = createClient<Database>(supabaseUrl, supabaseServiceKey);
@@ -107,6 +112,7 @@ Deno.serve(async (req) => {
     );
 
     if (!activeFlow || !activeFlow.flow_config) {
+      console.error(`[handle-gather] No active call flow found`);
       return generateErrorTwiML("No active call flow found.");
     }
 
@@ -116,6 +122,7 @@ Deno.serve(async (req) => {
         : activeFlow.flow_config;
 
     if (!config.blocks || !Array.isArray(config.blocks)) {
+      console.error(`[handle-gather] Invalid call flow configuration`);
       return generateErrorTwiML("Invalid call flow configuration.");
     }
 
@@ -124,6 +131,9 @@ Deno.serve(async (req) => {
       (block: any) => block.id === blockId,
     );
     if (!gatherBlock || gatherBlock.type !== "gather") {
+      console.error(
+        `[handle-gather] Gather block not found for blockId: ${blockId}`,
+      );
       return generateErrorTwiML("Gather block not found.");
     }
 
@@ -132,55 +142,95 @@ Deno.serve(async (req) => {
       (option: any) => option.digit === digits,
     );
 
-    let twiml = `<?xml version="1.0" encoding="UTF-8"?>\n<Response>\n`;
-    const voice = config.voice || "alice";
+    console.log(
+      `[handle-gather] Available options:`,
+      gatherBlock.config.options,
+    );
+    console.log(`[handle-gather] Looking for digit:`, digits);
+    console.log(`[handle-gather] Selected option:`, selectedOption);
+
+    let twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+`;
+    const voice = "alice";
 
     if (selectedOption) {
-      // Handle the selected option
-      switch (selectedOption.action) {
-        case "say":
-          if (selectedOption.text) {
-            twiml += `  <Say voice="${voice}">${escapeXml(selectedOption.text)}</Say>\n`;
-          }
-          break;
-        case "forward":
-          if (selectedOption.number) {
-            const timeout = selectedOption.timeout || 30;
-            twiml += `  <Dial timeout="${timeout}">${selectedOption.number}</Dial>\n`;
-          }
-          break;
-        case "record":
-          if (selectedOption.text) {
-            twiml += `  <Say voice="${voice}">${escapeXml(selectedOption.text)}</Say>\n`;
-          }
-          twiml += `  <Record maxLength="300" finishOnKey="#" transcribe="true"/>\n`;
-          break;
-        default:
-          if (selectedOption.text) {
-            twiml += `  <Say voice="${voice}">${escapeXml(selectedOption.text)}</Say>\n`;
-          }
-      }
+      console.log(`[handle-gather] Processing selected option:`, {
+        digit: selectedOption.digit,
+        text: selectedOption.text,
+        blockId: selectedOption.blockId,
+        hasBlockConnection: !!selectedOption.blockId,
+      });
 
-      // Process connected blocks from the gather block
-      if (gatherBlock.connections && gatherBlock.connections.length > 0) {
-        const nextBlockId = gatherBlock.connections[0];
-        const nextBlock = config.blocks.find((b: any) => b.id === nextBlockId);
-        if (nextBlock) {
-          twiml += generateBlockTwiML(nextBlock, config.blocks, voice);
+      // If the option has a connected block, route to that block
+      if (selectedOption.blockId) {
+        const connectedBlock = config.blocks.find(
+          (b: any) => b.id === selectedOption.blockId,
+        );
+        if (connectedBlock) {
+          console.log(`[handle-gather] Routing to connected block:`, {
+            blockId: connectedBlock.id,
+            blockType: connectedBlock.type,
+            blockConfig: connectedBlock.config,
+          });
+          const blockTwiML = generateBlockTwiML(
+            connectedBlock,
+            config.blocks,
+            voice,
+          );
+          if (blockTwiML.trim()) {
+            twiml += blockTwiML;
+          } else {
+            // Fallback if block generates no TwiML
+            twiml += `  <Say voice="${voice}">Thank you for your selection.</Say>
+`;
+            twiml += `  <Hangup/>
+`;
+          }
+        } else {
+          console.error(
+            `[handle-gather] Connected block not found:`,
+            selectedOption.blockId,
+          );
+          twiml += `  <Say voice="${voice}">Configuration error. Please contact support.</Say>
+`;
+          twiml += `  <Hangup/>
+`;
         }
+      } else {
+        // No block connection - provide default response
+        console.log(`[handle-gather] No block connection for option`);
+        if (selectedOption.text) {
+          twiml += `  <Say voice="${voice}">${escapeXml(selectedOption.text)}</Say>
+`;
+        } else {
+          twiml += `  <Say voice="${voice}">Thank you for selecting option ${digits}.</Say>
+`;
+        }
+        twiml += `  <Hangup/>
+`;
       }
     } else {
       // No matching option, provide default response
-      twiml += `  <Say voice="${voice}">Invalid selection. Please try again.</Say>\n`;
+      console.log(
+        `[handle-gather] No matching option found for digit: ${digits}`,
+      );
+      twiml += `  <Say voice="${voice}">Invalid selection. You pressed ${digits}. Please try again.</Say>
+`;
 
-      // Redirect back to the main call handler to restart the flow
-      const callUrl = `${req.url.split("/handle-gather")[0]}/handle-call`;
-      twiml += `  <Redirect>${callUrl}</Redirect>\n`;
+      // Get the base URL for redirect
+      const baseUrl =
+        Deno.env.get("SUPABASE_URL")?.replace("/rest/v1", "") || "";
+      const redirectUrl = `${baseUrl}/functions/v1/supabase-functions-handle-call`;
+
+      console.log(`[handle-gather] Redirecting to: ${redirectUrl}`);
+      twiml += `  <Redirect>${redirectUrl}</Redirect>
+`;
     }
 
     twiml += `</Response>`;
 
-    console.log(`[handle-gather] Generated TwiML for ${callSid}`);
+    console.log(`[handle-gather] Generated TwiML:`, twiml);
 
     return new Response(twiml, {
       headers: {
@@ -197,7 +247,11 @@ Deno.serve(async (req) => {
 });
 
 function generateErrorTwiML(message: string): Response {
-  const twiml = `<?xml version="1.0" encoding="UTF-8"?>\n<Response>\n  <Say voice="alice">${message}</Say>\n  <Hangup/>\n</Response>`;
+  const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice">${escapeXml(message)}</Say>
+  <Hangup/>
+</Response>`;
 
   return new Response(twiml, {
     status: 200,
@@ -217,27 +271,43 @@ function generateBlockTwiML(
   const processedBlocks = new Set<string>();
 
   function processBlock(currentBlock: any): string {
-    if (processedBlocks.has(currentBlock.id)) return "";
+    if (processedBlocks.has(currentBlock.id)) {
+      console.log(
+        `[generateBlockTwiML] Block already processed: ${currentBlock.id}`,
+      );
+      return "";
+    }
     processedBlocks.add(currentBlock.id);
+
+    console.log(`[generateBlockTwiML] Processing block:`, {
+      id: currentBlock.id,
+      type: currentBlock.type,
+      config: currentBlock.config,
+    });
 
     let blockTwiml = "";
 
     switch (currentBlock.type) {
       case "say":
         if (currentBlock.config.text) {
-          blockTwiml += `  <Say voice="${voice}">${escapeXml(currentBlock.config.text)}</Say>\n`;
+          const speed = currentBlock.config.speed || 1.0;
+          const rate = Math.max(0.5, Math.min(2.0, speed)); // Clamp between 0.5 and 2.0
+          blockTwiml += `  <Say voice="${voice}" rate="${rate}">${escapeXml(currentBlock.config.text)}</Say>
+`;
         }
         break;
 
       case "pause":
         const duration = currentBlock.config.duration || 2;
-        blockTwiml += `  <Pause length="${duration}"/>\n`;
+        blockTwiml += `  <Pause length="${duration}"/>
+`;
         break;
 
       case "forward":
         if (currentBlock.config.number) {
           const timeout = currentBlock.config.timeout || 30;
-          blockTwiml += `  <Dial timeout="${timeout}">${currentBlock.config.number}</Dial>\n`;
+          blockTwiml += `  <Dial timeout="${timeout}">${escapeXml(currentBlock.config.number)}</Dial>
+`;
         }
         break;
 
@@ -245,29 +315,70 @@ function generateBlockTwiML(
         const maxLength = currentBlock.config.maxLength || 300;
         const finishOnKey = currentBlock.config.finishOnKey || "#";
         if (currentBlock.config.prompt) {
-          blockTwiml += `  <Say voice="${voice}">${escapeXml(currentBlock.config.prompt)}</Say>\n`;
+          blockTwiml += `  <Say voice="${voice}">${escapeXml(currentBlock.config.prompt)}</Say>
+`;
         }
-        blockTwiml += `  <Record maxLength="${maxLength}" finishOnKey="${finishOnKey}" transcribe="true"/>\n`;
+        blockTwiml += `  <Record maxLength="${maxLength}" finishOnKey="${finishOnKey}" transcribe="true"/>
+`;
         break;
 
       case "play":
         if (currentBlock.config.url) {
-          blockTwiml += `  <Play>${escapeXml(currentBlock.config.url)}</Play>\n`;
+          blockTwiml += `  <Play>${escapeXml(currentBlock.config.url)}</Play>
+`;
         }
         break;
 
       case "hangup":
-        blockTwiml += `  <Hangup/>\n`;
+        blockTwiml += `  <Hangup/>
+`;
         return blockTwiml; // Don't process further connections after hangup
+
+      case "gather":
+        // Don't process gather blocks in this context to avoid infinite loops
+        console.log(
+          `[generateBlockTwiML] Skipping gather block to avoid loops`,
+        );
+        blockTwiml += `  <Say voice="${voice}">Menu option processed.</Say>
+`;
+        blockTwiml += `  <Hangup/>
+`;
+        return blockTwiml;
+
+      case "sms":
+        if (currentBlock.config.message) {
+          const to = currentBlock.config.to || "{{From}}";
+          blockTwiml += `  <Sms to="${escapeXml(to)}">${escapeXml(currentBlock.config.message)}</Sms>
+`;
+        }
+        break;
+
+      default:
+        console.log(
+          `[generateBlockTwiML] Unknown block type: ${currentBlock.type}`,
+        );
+        blockTwiml += `  <Say voice="${voice}">Unknown block type.</Say>
+`;
+        blockTwiml += `  <Hangup/>
+`;
+        return blockTwiml;
     }
 
     // Process connected blocks
     if (currentBlock.connections && currentBlock.connections.length > 0) {
+      console.log(
+        `[generateBlockTwiML] Processing connections:`,
+        currentBlock.connections,
+      );
       const nextBlock = allBlocks.find(
         (b: any) => b.id === currentBlock.connections[0],
       );
       if (nextBlock) {
         blockTwiml += processBlock(nextBlock);
+      } else {
+        console.log(
+          `[generateBlockTwiML] Connected block not found: ${currentBlock.connections[0]}`,
+        );
       }
     }
 
@@ -278,6 +389,7 @@ function generateBlockTwiML(
 }
 
 function escapeXml(text: string): string {
+  if (!text) return "";
   return text
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")

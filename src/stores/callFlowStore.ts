@@ -16,12 +16,14 @@ export interface FlowBlock {
   position: { x: number; y: number };
   config: {
     text?: string;
+    speed?: number;
     prompt?: string;
     options?: Array<{
       digit: string;
       action: string;
       text: string;
       number?: string;
+      blockId?: string;
     }>;
     number?: string;
     timeout?: number;
@@ -41,7 +43,6 @@ export interface CallFlow {
   twilio_number_id: string;
   is_active: boolean;
   flow_config: {
-    voice: string;
     blocks: FlowBlock[];
     version: string;
   };
@@ -62,7 +63,6 @@ interface CallFlowState {
   isSaving: boolean;
 
   // Editor settings
-  voice: string;
   flowName: string;
   selectedNumberId: string;
 
@@ -83,7 +83,6 @@ interface CallFlowState {
   deleteFlow: (flowId: string, userId: string) => Promise<boolean>;
 
   // Settings
-  setVoice: (voice: string) => void;
   setFlowName: (name: string) => void;
   setSelectedNumberId: (id: string) => void;
 
@@ -103,7 +102,6 @@ export const useCallFlowStore = create<CallFlowState>()(
         flows: [],
         isLoading: false,
         isSaving: false,
-        voice: "alice",
         flowName: "",
         selectedNumberId: "",
 
@@ -210,7 +208,6 @@ export const useCallFlowStore = create<CallFlowState>()(
           set({ isSaving: true });
           try {
             const flowConfig = {
-              voice: state.voice,
               blocks: state.blocks,
               version: "2.0",
             };
@@ -290,7 +287,6 @@ export const useCallFlowStore = create<CallFlowState>()(
         },
 
         // Settings
-        setVoice: (voice) => set({ voice }),
         setFlowName: (flowName) => set({ flowName }),
         setSelectedNumberId: (selectedNumberId) => set({ selectedNumberId }),
 
@@ -301,7 +297,6 @@ export const useCallFlowStore = create<CallFlowState>()(
             blocks: [],
             selectedBlock: null,
             connectingFrom: null,
-            voice: "alice",
             flowName: "",
             selectedNumberId: "",
           }),
@@ -309,7 +304,6 @@ export const useCallFlowStore = create<CallFlowState>()(
       {
         name: "call-flow-storage",
         partialize: (state) => ({
-          voice: state.voice,
           // Don't persist flows or editing state
         }),
       },
