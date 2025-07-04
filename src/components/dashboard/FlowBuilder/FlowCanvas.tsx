@@ -1,0 +1,162 @@
+import React, { useRef, useCallback } from "react";
+import { FlowBlock } from "@/stores/callFlowStore";
+import FlowBlockComponent from "./FlowBlockComponent";
+import ConnectionLine from "./ConnectionLine";
+
+interface FlowCanvasProps {
+  blocks: FlowBlock[];
+  selectedBlock: FlowBlock | null;
+  connectingFrom: string | null;
+  onBlockSelect: (block: FlowBlock) => void;
+  onBlockUpdate: (id: string, updates: Partial<FlowBlock>) => void;
+  onBlockDelete: (id: string) => void;
+  onConnect: (fromId: string, toId: string) => void;
+  onSetConnecting: (id: string | null) => void;
+}
+
+export default function FlowCanvas({
+  blocks,
+  selectedBlock,
+  connectingFrom,
+  onBlockSelect,
+  onBlockUpdate,
+  onBlockDelete,
+  onConnect,
+  onSetConnecting,
+}: FlowCanvasProps) {
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const draggedBlock = useRef<{
+    id: string;
+    offset: { x: number; y: number };
+  } | null>(null);
+
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent, blockId: string) => {
+      const block = blocks.find((b) => b.id === blockId);
+      if (!block) return;
+
+      const rect = e.currentTarget.getBoundingClientRect();
+      draggedBlock.current = {
+        id: blockId,
+        offset: {
+          x: e.clientX - rect.left,
+          y: e.clientY - rect.top,
+        },
+      };
+
+      e.preventDefault();
+    },
+    [blocks],
+  );
+
+  const handleMouseMove = useCallback(
+    (e: React.MouseEvent) => {
+      if (!draggedBlock.current || !canvasRef.current) return;
+
+      const canvasRect = canvasRef.current.getBoundingClientRect();
+      const newX = e.clientX - canvasRect.left - draggedBlock.current.offset.x;
+      const newY = e.clientY - canvasRect.top - draggedBlock.current.offset.y;
+
+      onBlockUpdate(draggedBlock.current.id, {
+        position: { x: Math.max(0, newX), y: Math.max(0, newY) },
+      });
+    },
+    [onBlockUpdate],
+  );
+
+  const handleMouseUp = useCallback(() => {
+    draggedBlock.current = null;
+  }, []);
+
+  const handleBlockClick = useCallback(
+    (block: FlowBlock) => {
+      if (connectingFrom && connectingFrom !== block.id) {
+        onConnect(connectingFrom, block.id);
+        onSetConnecting(null);
+      } else {
+        onBlockSelect(block);
+      }
+    },
+    [connectingFrom, onConnect, onSetConnecting, onBlockSelect],
+  );
+
+  return (
+    <div
+      ref={canvasRef}
+      className="relative bg-gray-50 rounded-lg overflow-auto flex-1"
+      style={{ minHeight: "600px", minWidth: "1000px" }}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseUp}
+    >
+      {/* Connection Lines */}
+      <svg
+        className="absolute inset-0 pointer-events-none"
+        style={{ zIndex: 1 }}
+      >
+        {blocks.map((block) =>
+          block.connections.map((connectedId) => {
+            const connectedBlock = blocks.find((b) => b.id === connectedId);
+            if (!connectedBlock) return null;
+
+            return (
+              <ConnectionLine
+                key={`${block.id}-${connectedId}`}
+                connectionId={`${block.id}-${connectedId}`}
+                from={{
+                  x: block.position.x + 192, // block width
+                  y: block.position.y + 50, // block center
+                }}
+                to={{
+                  x: connectedBlock.position.x,
+                  y: connectedBlock.position.y + 50,
+                }}
+              />
+            );
+          }),
+        )}
+      </svg>
+
+      {/* Blocks */}
+      {blocks.map((block) => (
+        <FlowBlockComponent
+          key={block.id}
+          block={block}
+          isSelected={selectedBlock?.id === block.id}
+          isConnecting={connectingFrom === block.id}
+          onClick={() => handleBlockClick(block)}
+          onMouseDown={(e) => handleMouseDown(e, block.id)}
+          onDelete={() => onBlockDelete(block.id)}
+          onStartConnecting={() => onSetConnecting(block.id)}
+          onStopConnecting={() => onSetConnecting(null)}
+        />
+      ))}
+
+      {/* Empty State */}
+      {blocks.length === 0 && (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="text-center text-gray-500">
+            <div className="text-6xl mb-4">🎨</div>
+            <h3 className="text-lg font-medium mb-2">
+              Start Building Your Flow
+            </h3>
+            <p className="text-sm">
+              Drag blocks from the palette to create your call flow
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Connection Mode Overlay */}
+      {connectingFrom && (
+        <div className="absolute top-4 left-4 bg-green-100 border border-green-300 rounded-lg p-3 text-sm text-green-800 z-10">
+          <div className="font-medium mb-1">🔗 Connection Mode Active</div>
+          <div>
+            Click another block to connect, or click the link icon again to
+            cancel.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

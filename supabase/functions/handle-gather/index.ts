@@ -173,9 +173,9 @@ Deno.serve(async (req) => {
       // No matching option, provide default response
       twiml += `  <Say voice="${voice}">Invalid selection. Please try again.</Say>\n`;
 
-      // Redirect back to the gather block
-      const gatherUrl = `${req.url.split("/handle-gather")[0]}/handle-call`;
-      twiml += `  <Redirect>${gatherUrl}</Redirect>\n`;
+      // Redirect back to the main call handler to restart the flow
+      const callUrl = `${req.url.split("/handle-gather")[0]}/handle-call`;
+      twiml += `  <Redirect>${callUrl}</Redirect>\n`;
     }
 
     twiml += `</Response>`;
