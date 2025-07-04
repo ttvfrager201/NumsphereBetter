@@ -534,7 +534,7 @@ export default function CallFlowManager() {
           }
         }}
       >
-        <DialogContent className="max-w-7xl max-h-[90vh] overflow-hidden">
+        <DialogContent className="max-w-7xl max-h-[90vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Wand2 className="h-5 w-5" />
@@ -545,7 +545,7 @@ export default function CallFlowManager() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="flex h-[70vh] gap-4">
+          <div className="flex h-[65vh] gap-4 flex-1 overflow-hidden">
             {/* Left Sidebar - Settings & Blocks */}
             <div className="w-80 space-y-4 overflow-y-auto">
               {/* Flow Settings */}
@@ -651,27 +651,43 @@ export default function CallFlowManager() {
             </div>
           </div>
 
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowFlowEditor(false)}
-              disabled={isSaving}
-            >
-              Cancel
-            </Button>
-            <Button onClick={handleSaveFlow} disabled={isSaving}>
-              {isSaving ? (
-                <>
-                  <LoadingSpinner size="sm" className="mr-2" />
-                  Saving Flow...
-                </>
-              ) : (
-                <>
-                  <Save className="h-4 w-4 mr-2" />
-                  {currentFlow ? "Update Flow" : "Save Flow"}
-                </>
-              )}
-            </Button>
+          <DialogFooter className="flex justify-between items-center gap-4 pt-4 border-t">
+            <div className="flex items-center gap-2 text-sm text-gray-600">
+              <Badge variant="outline">
+                {formatPhoneNumber(
+                  twilioNumbers.find((n) => n.id === selectedNumberId)
+                    ?.phone_number || "Select Number",
+                )}
+              </Badge>
+              <Badge variant="outline">{voice}</Badge>
+              <Badge variant="outline">{blocks.length} blocks</Badge>
+            </div>
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                onClick={() => setShowFlowEditor(false)}
+                disabled={isSaving}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSaveFlow}
+                disabled={isSaving}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                {isSaving ? (
+                  <>
+                    <LoadingSpinner size="sm" className="mr-2" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-4 w-4 mr-2" />
+                    {currentFlow ? "Update Flow" : "Save Flow"}
+                  </>
+                )}
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
