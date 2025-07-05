@@ -21,7 +21,7 @@ const BLOCK_TYPES = [
     label: "Say Text",
     description: "Speak a message to the caller",
     color: "bg-blue-500",
-    config: { text: "Hello! Welcome to our service." },
+    config: { text: "Hello! Welcome to our service.", speed: 1.0 },
   },
   {
     type: "gather",
@@ -31,6 +31,9 @@ const BLOCK_TYPES = [
     color: "bg-green-500",
     config: {
       prompt: "Press 1 for option A, or 2 for option B.",
+      maxRetries: 3,
+      retryMessage: "Sorry, I didn't understand. Please try again.",
+      goodbyeMessage: "Thank you for calling. Goodbye!",
       options: [
         { digit: "1", action: "say", text: "You selected option A" },
         { digit: "2", action: "say", text: "You selected option B" },
@@ -44,6 +47,18 @@ const BLOCK_TYPES = [
     description: "Transfer call to another number",
     color: "bg-purple-500",
     config: { number: "+1234567890", timeout: 30 },
+  },
+  {
+    type: "multi_forward",
+    icon: PhoneForwarded,
+    label: "Multi Forward",
+    description: "Forward to multiple numbers",
+    color: "bg-violet-500",
+    config: {
+      numbers: ["+1234567890"],
+      forwardStrategy: "simultaneous",
+      ringTimeout: 20,
+    },
   },
   {
     type: "record",
@@ -88,7 +103,10 @@ const BLOCK_TYPES = [
     description: "Put caller on hold with music",
     color: "bg-orange-500",
     config: {
-      musicUrl: "https://example.com/hold-music.mp3",
+      musicType: "preset",
+      presetMusic: "classical",
+      musicUrl: "",
+      holdMusicLoop: 10,
       message: "Please hold while we connect you.",
     },
   },

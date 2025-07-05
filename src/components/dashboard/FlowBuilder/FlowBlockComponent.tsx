@@ -18,6 +18,7 @@ const BLOCK_ICONS = {
   say: MessageSquare,
   gather: Hash,
   forward: PhoneForwarded,
+  multi_forward: PhoneForwarded,
   record: Mic,
   pause: Pause,
   play: Play,
@@ -30,6 +31,7 @@ const BLOCK_COLORS = {
   say: "bg-blue-500",
   gather: "bg-green-500",
   forward: "bg-purple-500",
+  multi_forward: "bg-violet-500",
   record: "bg-red-500",
   pause: "bg-yellow-500",
   play: "bg-indigo-500",
@@ -42,6 +44,7 @@ const BLOCK_LABELS = {
   say: "Say Text",
   gather: "Menu/Gather",
   forward: "Forward Call",
+  multi_forward: "Multi Forward",
   record: "Record Message",
   pause: "Pause/Wait",
   play: "Play Audio",
@@ -89,6 +92,13 @@ export default function FlowBlockComponent({
         return block.config.number
           ? `→ ${block.config.number}`
           : "No number set";
+      case "multi_forward":
+        const numCount = (block.config.numbers || []).filter((n) =>
+          n.trim(),
+        ).length;
+        return numCount > 0
+          ? `→ ${numCount} number${numCount !== 1 ? "s" : ""} (${block.config.forwardStrategy || "simultaneous"})`
+          : "No numbers set";
       case "record":
         return "🎤 Record message";
       case "pause":
@@ -98,7 +108,12 @@ export default function FlowBlockComponent({
       case "hangup":
         return "📞 End call";
       case "hold":
-        return "🎵 Hold with music";
+        const musicType = block.config.musicType || "preset";
+        const musicName =
+          musicType === "preset"
+            ? block.config.presetMusic || "classical"
+            : "custom";
+        return `🎵 Hold (${musicName})`;
       default:
         return "Configure block";
     }

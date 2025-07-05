@@ -28,6 +28,7 @@ const BLOCK_LABELS = {
   say: "Say Text",
   gather: "Menu/Gather",
   forward: "Forward Call",
+  multi_forward: "Multi Forward",
   record: "Record Message",
   pause: "Pause/Wait",
   play: "Play Audio",
@@ -155,7 +156,7 @@ export default function BlockProperties({
                 <Input
                   type="range"
                   min="0.5"
-                  max="2.0"
+                  max="1.6"
                   step="0.1"
                   value={block.config.speed || 1.0}
                   onChange={(e) =>
@@ -163,12 +164,20 @@ export default function BlockProperties({
                   }
                   className="flex-1"
                 />
-                <span className="text-sm text-gray-600 min-w-[3rem]">
-                  {(block.config.speed || 1.0).toFixed(1)}x
+                <span className="text-sm text-gray-600 min-w-[4rem]">
+                  {(() => {
+                    const speed = block.config.speed || 1.0;
+                    if (speed <= 0.6) return "x-slow";
+                    if (speed <= 0.8) return "slow";
+                    if (speed <= 1.2) return "medium";
+                    if (speed <= 1.5) return "fast";
+                    return "x-fast";
+                  })()}
                 </span>
               </div>
               <div className="text-xs text-gray-500">
-                0.5x = Slow • 1.0x = Normal • 2.0x = Fast
+                0.5 = x-slow • 0.8 = slow • 1.0 = medium • 1.5 = fast • 1.6 =
+                x-fast
               </div>
             </div>
           </div>
@@ -185,6 +194,47 @@ export default function BlockProperties({
                 rows={3}
                 className="text-sm"
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-sm">Retry Settings</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label className="text-xs text-gray-600">Max Retries</Label>
+                  <Input
+                    type="number"
+                    value={block.config.maxRetries || 3}
+                    onChange={(e) =>
+                      updateConfig({ maxRetries: parseInt(e.target.value) })
+                    }
+                    min="1"
+                    max="10"
+                    className="h-8 text-sm"
+                  />
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs text-gray-600">Retry Message</Label>
+                <Input
+                  value={block.config.retryMessage || ""}
+                  onChange={(e) =>
+                    updateConfig({ retryMessage: e.target.value })
+                  }
+                  placeholder="Sorry, I didn't understand. Please try again."
+                  className="h-8 text-sm"
+                />
+              </div>
+              <div>
+                <Label className="text-xs text-gray-600">Goodbye Message</Label>
+                <Input
+                  value={block.config.goodbyeMessage || ""}
+                  onChange={(e) =>
+                    updateConfig({ goodbyeMessage: e.target.value })
+                  }
+                  placeholder="Thank you for calling. Goodbye!"
+                  className="h-8 text-sm"
+                />
+              </div>
             </div>
 
             <div className="space-y-2">
@@ -380,6 +430,92 @@ export default function BlockProperties({
           </div>
         )}
 
+        {block.type === "multi_forward" && (
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Forward Strategy</Label>
+              <Select
+                value={block.config.forwardStrategy || "simultaneous"}
+                onValueChange={(value) =>
+                  updateConfig({ forwardStrategy: value })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select forwarding strategy" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="simultaneous">
+                    Simultaneous (Ring all at once)
+                  </SelectItem>
+                  <SelectItem value="sequential">
+                    Sequential (Try one by one)
+                  </SelectItem>
+                  <SelectItem value="priority">
+                    Priority (Primary first, then others)
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Ring Timeout (seconds)</Label>
+              <Input
+                type="number"
+                value={block.config.ringTimeout || 20}
+                onChange={(e) =>
+                  updateConfig({ ringTimeout: parseInt(e.target.value) })
+                }
+                min="5"
+                max="60"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Phone Numbers (up to 10)</Label>
+              {(block.config.numbers || []).map(
+                (number: string, index: number) => (
+                  <div key={index} className="flex gap-2 items-center">
+                    <Input
+                      value={number}
+                      onChange={(e) => {
+                        const newNumbers = [...(block.config.numbers || [])];
+                        newNumbers[index] = e.target.value;
+                        updateConfig({ numbers: newNumbers });
+                      }}
+                      placeholder="+1234567890"
+                      className="flex-1"
+                    />
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        const newNumbers = [...(block.config.numbers || [])];
+                        newNumbers.splice(index, 1);
+                        updateConfig({ numbers: newNumbers });
+                      }}
+                      className="h-8 w-8 p-0 text-red-500"
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                ),
+              )}
+              {(block.config.numbers || []).length < 10 && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    const currentNumbers = block.config.numbers || [];
+                    updateConfig({ numbers: [...currentNumbers, ""] });
+                  }}
+                  className="w-full h-8 text-sm border-dashed"
+                >
+                  <Plus className="h-3 w-3 mr-1" />
+                  Add Phone Number
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+
         {block.type === "hold" && (
           <div className="space-y-4">
             <div className="space-y-2">
@@ -392,12 +528,70 @@ export default function BlockProperties({
               />
             </div>
             <div className="space-y-2">
-              <Label>Hold Music URL</Label>
+              <Label>Music Type</Label>
+              <Select
+                value={block.config.musicType || "preset"}
+                onValueChange={(value) => updateConfig({ musicType: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select music type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="preset">Preset Music</SelectItem>
+                  <SelectItem value="custom">Custom URL</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {block.config.musicType === "preset" && (
+              <div className="space-y-2">
+                <Label>Preset Music</Label>
+                <Select
+                  value={block.config.presetMusic || "classical"}
+                  onValueChange={(value) =>
+                    updateConfig({ presetMusic: value })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select preset music" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="classical">🎼 Classical</SelectItem>
+                    <SelectItem value="jazz">🎷 Jazz</SelectItem>
+                    <SelectItem value="ambient">🌊 Ambient</SelectItem>
+                    <SelectItem value="corporate">🏢 Corporate</SelectItem>
+                    <SelectItem value="nature">🌿 Nature Sounds</SelectItem>
+                    <SelectItem value="piano">🎹 Piano</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            {block.config.musicType === "custom" && (
+              <div className="space-y-2">
+                <Label>Custom Music URL</Label>
+                <Input
+                  value={block.config.musicUrl || ""}
+                  onChange={(e) => updateConfig({ musicUrl: e.target.value })}
+                  placeholder="https://example.com/hold-music.mp3"
+                />
+                <div className="text-xs text-gray-500">
+                  Must be an accessible audio file (MP3, WAV, etc.)
+                </div>
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label>Music Loop Count</Label>
               <Input
-                value={block.config.musicUrl || ""}
-                onChange={(e) => updateConfig({ musicUrl: e.target.value })}
-                placeholder="https://example.com/hold-music.mp3"
+                type="number"
+                value={block.config.holdMusicLoop || 10}
+                onChange={(e) =>
+                  updateConfig({ holdMusicLoop: parseInt(e.target.value) })
+                }
+                min="1"
+                max="100"
               />
+              <div className="text-xs text-gray-500">
+                Number of times to loop the music (default: 10)
+              </div>
             </div>
           </div>
         )}

@@ -20,6 +20,9 @@ export interface FlowBlock {
     text?: string;
     speed?: number;
     prompt?: string;
+    maxRetries?: number;
+    retryMessage?: string;
+    goodbyeMessage?: string;
     options?: Array<{
       digit: string;
       action: string;
@@ -28,8 +31,8 @@ export interface FlowBlock {
       blockId?: string;
     }>;
     number?: string;
-    numbers?: string[]; // For multi-forward enterprise feature
-    forwardStrategy?: "simultaneous" | "sequential" | "priority"; // Enterprise forwarding strategies
+    numbers?: string[]; // For multi-forward feature
+    forwardStrategy?: "simultaneous" | "sequential" | "priority"; // Forwarding strategies
     ringTimeout?: number; // Timeout for each number in sequential mode
     timeout?: number;
     holdMusicUrl?: string;
@@ -41,6 +44,8 @@ export interface FlowBlock {
     message?: string;
     to?: string;
     musicUrl?: string;
+    musicType?: "preset" | "custom";
+    presetMusic?: string;
   };
   connections: string[];
 }
