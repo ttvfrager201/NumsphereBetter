@@ -237,6 +237,13 @@ Deno.serve(async (req) => {
             status: subscription.status,
             current_period_end: subscription.current_period_end,
             current_period_start: subscription.current_period_start,
+            metadata: subscription.metadata || {},
+            // Use database plan_id as source of truth, not Stripe subscription name
+            plan_id: subscriptionData.plan_id,
+            // Include scheduled plan change info
+            scheduled_plan_change: subscription.metadata?.new_plan_id || null,
+            plan_change_scheduled:
+              subscription.metadata?.plan_change_scheduled === "true",
           };
         } catch (subError) {
           // Silently handle subscription fetch errors to reduce console noise

@@ -89,58 +89,85 @@ const PlanChangeComponent = () => {
       if (!user) return;
 
       try {
-        // Use edge function to get payment history and subscription data
-        const { data: paymentData, error: paymentError } =
-          await supabase.functions.invoke(
-            "supabase-functions-get-payment-history",
-            {
-              body: { userId: user.id },
-            },
+        // Get current plan from database as source of truth
+        const { data: dbSubscription, error: dbError } = await supabase
+          .from("user_subscriptions")
+          .select(
+            "plan_id, scheduled_plan_change, current_period_end, stripe_subscription_id, status",
+          )
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+        if (!dbError && dbSubscription) {
+          console.log(
+            "Plan Change Component - Database subscription:",
+            dbSubscription,
           );
 
-        if (!paymentError && paymentData?.subscription) {
-          const stripeSubscription = paymentData.subscription;
-          const actualPlanName = stripeSubscription.name || "starter";
+          // Use database plan_id as the current active plan
+          const currentPlanId = dbSubscription.plan_id || "starter";
+          setCurrentPlan(currentPlanId);
+          setActualPlanFromStripe(currentPlanId); // Set same as current for consistency
 
-          // Extract actual plan ID from Stripe subscription name
-          let actualPlanId = "starter";
-          if (actualPlanName.toLowerCase().includes("enterprise")) {
-            actualPlanId = "enterprise";
-          } else if (actualPlanName.toLowerCase().includes("business")) {
-            actualPlanId = "business";
-          } else if (actualPlanName.toLowerCase().includes("starter")) {
-            actualPlanId = "starter";
+          // Set scheduled plan change if exists
+          if (dbSubscription.scheduled_plan_change) {
+            setScheduledPlanChange(dbSubscription.scheduled_plan_change);
           }
 
-          setActualPlanFromStripe(actualPlanId);
-          setCurrentPlan(actualPlanId);
-
-          // Use Stripe billing date if available
-          if (stripeSubscription.current_period_end) {
-            const actualNextBilling = new Date(
-              stripeSubscription.current_period_end * 1000,
-            );
+          // Set next billing date
+          if (dbSubscription.current_period_end) {
+            const billingDate = new Date(dbSubscription.current_period_end);
             setNextBillingDate(
-              actualNextBilling.toLocaleDateString("en-US", {
+              billingDate.toLocaleDateString("en-US", {
                 year: "numeric",
                 month: "long",
                 day: "numeric",
               }),
             );
-          }
+          } else {
+            // Try to get billing date from Stripe if not in database
+            try {
+              const { data: paymentData, error: paymentError } =
+                await supabase.functions.invoke(
+                  "supabase-functions-get-payment-history",
+                  {
+                    body: { userId: user.id },
+                  },
+                );
 
-          // Check for scheduled plan changes (this would be in Stripe metadata)
-          if (stripeSubscription.metadata?.scheduled_plan_change) {
-            setScheduledPlanChange(
-              stripeSubscription.metadata.scheduled_plan_change,
-            );
+              if (
+                !paymentError &&
+                paymentData?.subscription?.current_period_end
+              ) {
+                const actualNextBilling = new Date(
+                  paymentData.subscription.current_period_end * 1000,
+                );
+                setNextBillingDate(
+                  actualNextBilling.toLocaleDateString("en-US", {
+                    year: "numeric",
+                    month: "long",
+                    day: "numeric",
+                  }),
+                );
+              }
+            } catch (stripeError) {
+              console.log("Could not fetch Stripe billing date:", stripeError);
+            }
           }
-        } else {
-          console.error("Error fetching payment data:", paymentError);
+        } else if (dbError) {
+          console.error("Error fetching database subscription:", dbError);
           toast({
             title: "Error",
             description:
               "Failed to load current plan information. Please refresh the page.",
+            variant: "destructive",
+          });
+        } else {
+          console.log("No subscription found for user");
+          toast({
+            title: "No Subscription",
+            description:
+              "No subscription found. Please contact support if you believe this is an error.",
             variant: "destructive",
           });
         }
@@ -221,7 +248,6 @@ const PlanChangeComponent = () => {
         });
       } else if (data?.success) {
         // Update local state to reflect the scheduled change
-        setScheduledPlanChange(newPlanId);
         toast({
           title: "🎉 Plan Change Scheduled!",
           description:
@@ -230,9 +256,7 @@ const PlanChangeComponent = () => {
         });
 
         // Refresh the plan data after successful change
-        setTimeout(() => {
-          window.location.reload();
-        }, 2000);
+        await fetchCurrentPlan();
       } else {
         toast({
           title: "Plan Change Failed",
@@ -626,7 +650,7 @@ const BillingManagement = () => {
 
                 <Button
                   onClick={() => {
-                    console.log("Change Plan button clicked");
+                    console.log("Change Plan button clicked from billing page");
                     setActiveTab("Change Plan");
                   }}
                   variant="outline"
@@ -886,61 +910,111 @@ const Home = () => {
           avatar_url: user?.user_metadata?.avatar_url || null,
         });
 
-        // Fetch subscription data using edge function only
+        // First get database subscription data as source of truth for current plan
         try {
-          const { data: paymentData, error: paymentError } =
-            await supabase.functions.invoke(
-              "supabase-functions-get-payment-history",
-              {
-                body: { userId: user.id },
-              },
-            );
+          // Try to get subscription (active or any status)
+          const { data: dbSubscription, error: dbError } = await supabase
+            .from("user_subscriptions")
+            .select(
+              "plan_id, status, stripe_subscription_id, scheduled_plan_change, current_period_end",
+            )
+            .eq("user_id", user.id)
+            .maybeSingle();
 
-          if (!paymentError && paymentData?.subscription) {
-            const stripeSubscription = paymentData.subscription;
+          console.log("Raw database subscription query result:", {
+            dbSubscription,
+            dbError,
+          });
 
-            // Use actual Stripe subscription data
-            const actualPlanName = stripeSubscription.name || "starter";
-            const actualAmount = stripeSubscription.amount
-              ? stripeSubscription.amount / 100
-              : 0;
-            const actualNextBilling = stripeSubscription.current_period_end
-              ? new Date(stripeSubscription.current_period_end * 1000)
-              : null;
+          if (!dbError && dbSubscription) {
+            console.log("Database subscription data:", dbSubscription);
 
-            // Extract plan ID from subscription name
-            let actualPlanId = "starter";
-            if (actualPlanName.toLowerCase().includes("enterprise")) {
-              actualPlanId = "enterprise";
-            } else if (actualPlanName.toLowerCase().includes("business")) {
-              actualPlanId = "business";
-            } else if (actualPlanName.toLowerCase().includes("starter")) {
-              actualPlanId = "starter";
-            }
+            // Use database plan_id as the current active plan
+            const currentPlanId = dbSubscription.plan_id || "starter";
+            const subscriptionStatus = dbSubscription.status || "active";
 
-            // Set subscription data from Stripe
+            // Set plan pricing based on current plan
+            const planPricing = {
+              starter: 10,
+              business: 29,
+              enterprise: 99,
+            };
+
+            const currentAmount =
+              planPricing[currentPlanId as keyof typeof planPricing] || 10;
+
+            // Set subscription data from database (source of truth)
             setSubscriptionData({
-              plan_id: actualPlanId,
-              status:
-                stripeSubscription.status === "active" ? "active" : "inactive",
+              plan_id: currentPlanId,
+              status: subscriptionStatus,
             });
 
             setPlanDetails({
-              plan_id: actualPlanId,
-              amount: actualAmount,
+              plan_id: currentPlanId,
+              amount: currentAmount,
             });
 
-            if (actualNextBilling) {
+            // Set next billing date from database or Stripe
+            if (dbSubscription.current_period_end) {
+              const billingDate = new Date(dbSubscription.current_period_end);
               setNextBillingDate(
-                actualNextBilling.toLocaleDateString("en-US", {
+                billingDate.toLocaleDateString("en-US", {
                   year: "numeric",
                   month: "long",
                   day: "numeric",
                 }),
               );
             }
+
+            // Now try to get additional Stripe data for billing date if not in database
+            if (
+              !dbSubscription.current_period_end &&
+              dbSubscription.stripe_subscription_id
+            ) {
+              try {
+                const { data: paymentData, error: paymentError } =
+                  await supabase.functions.invoke(
+                    "supabase-functions-get-payment-history",
+                    {
+                      body: { userId: user.id },
+                    },
+                  );
+
+                if (
+                  !paymentError &&
+                  paymentData?.subscription?.current_period_end
+                ) {
+                  const actualNextBilling = new Date(
+                    paymentData.subscription.current_period_end * 1000,
+                  );
+                  setNextBillingDate(
+                    actualNextBilling.toLocaleDateString("en-US", {
+                      year: "numeric",
+                      month: "long",
+                      day: "numeric",
+                    }),
+                  );
+                }
+              } catch (stripeError) {
+                console.log(
+                  "Could not fetch Stripe billing date:",
+                  stripeError,
+                );
+              }
+            }
+          } else if (dbError) {
+            console.error("Error fetching database subscription:", dbError);
+            // Set default values on error
+            setSubscriptionData({
+              plan_id: "starter",
+              status: "inactive",
+            });
+            setPlanDetails({
+              plan_id: "starter",
+              amount: 10,
+            });
           } else {
-            console.log("No subscription data available from Stripe");
+            console.log("No database subscription found, setting defaults");
             // Set default values if no subscription found
             setSubscriptionData({
               plan_id: "starter",
@@ -951,11 +1025,8 @@ const Home = () => {
               amount: 10,
             });
           }
-        } catch (stripeError) {
-          console.error(
-            "Error fetching Stripe subscription data:",
-            stripeError,
-          );
+        } catch (error) {
+          console.error("Error fetching database subscription:", error);
           // Set default values on error
           setSubscriptionData({
             plan_id: "starter",
@@ -967,19 +1038,27 @@ const Home = () => {
           });
         }
 
-        // Fetch active numbers count using edge function
+        // Fetch active numbers count from database directly
         try {
-          const { data: numbersData, error: numbersError } =
-            await supabase.functions.invoke(
-              "supabase-functions-get-twilio-numbers",
-              {
-                body: { userId: user.id },
-              },
-            );
+          const { data: numbersData, error: numbersError } = await supabase
+            .from("twilio_numbers")
+            .select("id")
+            .eq("user_id", user.id)
+            .eq("status", "active");
 
-          if (!numbersError && numbersData?.numbers) {
-            setActiveNumbersCount(numbersData.numbers.length);
+          console.log("Active numbers query result:", {
+            numbersData,
+            numbersError,
+            count: numbersData?.length || 0,
+          });
+
+          if (!numbersError && numbersData) {
+            setActiveNumbersCount(numbersData.length);
           } else {
+            console.error(
+              "Error fetching numbers from database:",
+              numbersError,
+            );
             setActiveNumbersCount(0);
           }
         } catch (error) {
@@ -1078,8 +1157,25 @@ const Home = () => {
           setTotalMinutesUsed(0);
         }
 
-        // Set default flows count (can be updated when call flows edge function is available)
-        setActiveFlowsCount(0);
+        // Fetch active call flows count
+        try {
+          const { data: flowsData, error: flowsError } = await supabase
+            .from("call_flows")
+            .select("id")
+            .eq("user_id", user.id)
+            .eq("is_active", true);
+
+          if (!flowsError && flowsData) {
+            setActiveFlowsCount(flowsData.length);
+          } else {
+            setActiveFlowsCount(0);
+          }
+        } catch (error) {
+          console.error("Error fetching call flows count:", error);
+          setActiveFlowsCount(0);
+        }
+
+        // Active flows count is now fetched above
       } catch (error) {
         console.error("Error fetching user data:", error);
       } finally {

@@ -97,7 +97,7 @@ Deno.serve(async (req) => {
       `Changing plan from ${subscription.plan_id} to ${newPlanId} for next billing cycle`,
     );
 
-    // Schedule plan change for next billing cycle with no immediate charge
+    // Schedule plan change for next billing cycle by updating subscription items at period end
     const updatedSubscription = await stripe.subscriptions.update(
       subscription.stripe_subscription_id,
       {
@@ -109,17 +109,21 @@ Deno.serve(async (req) => {
         ],
         proration_behavior: "none", // No immediate charge
         billing_cycle_anchor: "unchanged", // Keep current billing cycle
+        cancel_at_period_end: false, // Ensure subscription continues
         metadata: {
           ...stripeSubscription.metadata,
           old_plan_id: subscription.plan_id,
           new_plan_id: newPlanId,
           plan_change_scheduled: "true",
           scheduled_for_next_cycle: "true",
+          plan_change_date: new Date(
+            stripeSubscription.current_period_end * 1000,
+          ).toISOString(),
         },
       },
     );
 
-    // Update the database to reflect the scheduled plan change
+    // Update the database to reflect the scheduled plan change but keep current plan_id unchanged
     const { error: dbUpdateError } = await supabase
       .from("user_subscriptions")
       .update({
@@ -127,10 +131,19 @@ Deno.serve(async (req) => {
         plan_change_date: new Date(
           updatedSubscription.current_period_end * 1000,
         ).toISOString(),
+        current_period_end: new Date(
+          updatedSubscription.current_period_end * 1000,
+        ).toISOString(),
         updated_at: new Date().toISOString(),
+        // CRITICAL: Keep the current plan_id unchanged until the billing cycle
+        // plan_id stays as the current active plan (e.g., 'starter')
       })
       .eq("user_id", userId)
       .eq("status", "active");
+
+    if (dbUpdateError) {
+      console.error("Database update error:", dbUpdateError);
+    }
 
     console.log("Plan change scheduled successfully:", {
       subscriptionId: updatedSubscription.id,
