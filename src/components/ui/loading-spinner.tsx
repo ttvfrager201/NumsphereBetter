@@ -25,12 +25,10 @@ export function LoadingSpinner({
           "relative animate-spin rounded-full border-2 border-gray-200",
           "border-t-blue-500",
           sizeClasses[size],
-          className
+          className,
         )}
       />
-      {text && (
-        <p className="mt-3 text-sm font-medium text-gray-500">{text}</p>
-      )}
+      {text && <p className="mt-3 text-sm font-medium text-gray-500">{text}</p>}
     </div>
   );
 }
@@ -40,12 +38,15 @@ interface LoadingScreenProps {
   fullScreen?: boolean;
 }
 
-export function LoadingScreen({ text, fullScreen = false }: LoadingScreenProps) {
+export function LoadingScreen({
+  text,
+  fullScreen = false,
+}: LoadingScreenProps) {
   return (
     <div
       className={cn(
         "flex flex-col items-center justify-center bg-white/80 backdrop-blur-sm p-8 rounded-2xl",
-        fullScreen ? "fixed inset-0 z-50" : "h-full w-full"
+        fullScreen ? "fixed inset-0 z-50" : "h-full w-full",
       )}
     >
       <div className="relative">
@@ -83,3 +84,5 @@ export function LoadingPulse({ className }: { className?: string }) {
     </div>
   );
 }
+
+export default LoadingSpinner;

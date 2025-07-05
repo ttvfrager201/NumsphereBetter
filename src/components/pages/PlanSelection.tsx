@@ -65,7 +65,7 @@ const plans = [
   {
     id: "starter",
     name: "Starter",
-    price: 9,
+    price: 10,
     description: "Perfect for small businesses getting started",
     icon: Zap,
     color: "from-green-500 to-green-600",

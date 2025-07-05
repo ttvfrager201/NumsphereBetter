@@ -67,27 +67,67 @@ Deno.serve(async (req) => {
       );
       return generateErrorTwiML("This service is temporarily unavailable.");
     }
-    // Check minute limits based on plan
+    // Check minute limits based on plan - get real-time usage from call logs
     const { data: subscription } = await supabase
       .from("user_subscriptions")
       .select("plan_id")
       .eq("user_id", twilioNumber.user_id)
       .eq("status", "active")
       .single();
+
     const planLimits = {
       starter: 500,
       business: 2000,
-      enterprise: -1,
+      enterprise: -1, // unlimited
     };
+
     const minuteLimit = planLimits[subscription?.plan_id] || 500;
-    const minutesUsed = twilioNumber.minutes_used || 0;
-    if (minuteLimit !== -1 && minutesUsed >= minuteLimit) {
+
+    // Calculate real-time usage from call logs for current month
+    if (minuteLimit !== -1) {
+      const currentDate = new Date();
+      const firstDayOfMonth = new Date(
+        currentDate.getFullYear(),
+        currentDate.getMonth(),
+        1,
+      );
+
+      const { data: callLogs } = await supabase
+        .from("call_logs")
+        .select("call_duration")
+        .eq("user_id", twilioNumber.user_id)
+        .gte("created_at", firstDayOfMonth.toISOString());
+
+      const totalSecondsUsed =
+        callLogs?.reduce((sum, log) => sum + (log.call_duration || 0), 0) || 0;
+
+      const totalMinutesUsed = Math.round((totalSecondsUsed / 60) * 100) / 100;
+
       console.log(
-        `[handle-call] Minute limit exceeded for user ${twilioNumber.user_id}`,
+        `[handle-call] Usage check for user ${twilioNumber.user_id}:`,
+        {
+          totalSecondsUsed,
+          totalMinutesUsed,
+          minuteLimit,
+          planId: subscription?.plan_id,
+        },
       );
-      return generateErrorTwiML(
-        "Your monthly minute limit has been reached. Please upgrade your plan.",
-      );
+
+      if (totalMinutesUsed >= minuteLimit) {
+        console.log(
+          `[handle-call] Minute limit exceeded for user ${twilioNumber.user_id}: ${totalMinutesUsed}/${minuteLimit} minutes`,
+        );
+        return generateErrorTwiML(
+          "Your monthly minute limit has been reached. Please upgrade your plan to continue receiving calls.",
+        );
+      }
+
+      // Warn when approaching limit (90%)
+      if (totalMinutesUsed >= minuteLimit * 0.9) {
+        console.warn(
+          `[handle-call] User ${twilioNumber.user_id} approaching limit: ${totalMinutesUsed}/${minuteLimit} minutes (${((totalMinutesUsed / minuteLimit) * 100).toFixed(1)}%)`,
+        );
+      }
     }
     // Get active call flow or use default
     const activeFlow = twilioNumber.call_flows?.find((flow) => flow.is_active);

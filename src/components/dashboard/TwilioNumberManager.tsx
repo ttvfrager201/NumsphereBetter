@@ -770,8 +770,8 @@ export default function TwilioNumberManager() {
                   <div className="text-sm text-gray-500 flex items-center gap-4 mt-1">
                     <span className="flex items-center gap-1">
                       <Clock className="h-3 w-3" />
-                      {number.minutes_used} / {number.minutes_allocated} minutes
-                      used
+                      {(number.minutes_used || 0).toFixed(2)} /{" "}
+                      {number.minutes_allocated} minutes used
                     </span>
                     <Badge
                       variant={

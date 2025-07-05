@@ -9,6 +9,9 @@ import CallLogs from "../dashboard/CallLogs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import LoadingSpinner from "@/components/ui/loading-spinner";
+
 import {
   Card,
   CardContent,
@@ -47,35 +50,221 @@ import {
   CheckCircle,
   XCircle,
   AlertCircle,
-  Sun,
-  Moon,
+  Clock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "../../../supabase/auth";
 import { supabase } from "../../../supabase/supabase";
 import { useToast } from "@/components/ui/use-toast";
 
-// Theme Context
-const useTheme = () => {
-  const [theme, setTheme] = useState(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("theme") || "light";
-    }
-    return "light";
-  });
+// Plan Expiration Notification Component - Simplified without API calls
+const PlanExpirationNotification = ({
+  subscriptionData,
+}: {
+  subscriptionData: any;
+}) => {
+  // For now, we'll skip the expiration notification to avoid API errors
+  // This can be re-enabled once the payment history function is fixed
+  return null;
+};
+
+// Plan Change Component
+const PlanChangeComponent = () => {
+  const { user } = useAuth();
+  const [isChangingPlan, setIsChangingPlan] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
+  const [currentPlan, setCurrentPlan] = useState<string | null>(null);
+  const { toast } = useToast();
 
   useEffect(() => {
-    const root = window.document.documentElement;
-    root.classList.remove("light", "dark");
-    root.classList.add(theme);
-    localStorage.setItem("theme", theme);
-  }, [theme]);
+    const fetchCurrentPlan = async () => {
+      if (!user) return;
 
-  const toggleTheme = () => {
-    setTheme(theme === "light" ? "dark" : "light");
+      try {
+        const { data: subscription } = await supabase
+          .from("user_subscriptions")
+          .select("plan_id")
+          .eq("user_id", user.id)
+          .eq("status", "active")
+          .single();
+
+        if (subscription) {
+          setCurrentPlan(subscription.plan_id);
+        }
+      } catch (error) {
+        console.error("Error fetching current plan:", error);
+      }
+    };
+
+    fetchCurrentPlan();
+  }, [user]);
+
+  const handlePlanChange = async (newPlanId: string) => {
+    if (!user || !currentPlan || newPlanId === currentPlan) return;
+
+    setIsChangingPlan(true);
+    setSelectedPlan(newPlanId);
+
+    try {
+      const { data, error } = await supabase.functions.invoke(
+        "supabase-functions-change-subscription-plan",
+        {
+          body: {
+            userId: user.id,
+            newPlanId,
+          },
+        },
+      );
+
+      if (error) {
+        console.error("Plan change error:", error);
+        toast({
+          title: "Plan Change Failed",
+          description:
+            error.message ||
+            "Failed to schedule plan change. Please try again.",
+          variant: "destructive",
+        });
+      } else if (data?.success) {
+        toast({
+          title: "🎉 Plan Change Scheduled!",
+          description: data.message,
+        });
+      }
+    } catch (error) {
+      console.error("Plan change exception:", error);
+      toast({
+        title: "Plan Change Failed",
+        description: "An unexpected error occurred. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsChangingPlan(false);
+      setSelectedPlan(null);
+    }
   };
 
-  return { theme, toggleTheme };
+  const plans = [
+    {
+      id: "starter",
+      name: "Starter",
+      price: 10,
+      features: [
+        "1 Phone Number",
+        "500 Minutes",
+        "Basic Call Flows",
+        "Email Support",
+      ],
+    },
+    {
+      id: "business",
+      name: "Business",
+      price: 29,
+      features: [
+        "5 Phone Numbers",
+        "2,000 Minutes",
+        "Advanced Call Flows",
+        "Priority Support",
+      ],
+    },
+    {
+      id: "enterprise",
+      name: "Enterprise",
+      price: 99,
+      features: [
+        "25 Phone Numbers",
+        "Unlimited Minutes",
+        "Custom Call Flows",
+        "24/7 Support",
+      ],
+    },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <div className="text-center py-8">
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-4">
+          Change Your Plan
+        </h2>
+        <p className="text-gray-600 dark:text-gray-300 mb-8">
+          Upgrade or downgrade your plan. Changes will take effect at your next
+          billing cycle.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {plans.map((plan) => (
+          <Card
+            key={plan.id}
+            className={`relative ${currentPlan === plan.id ? "ring-2 ring-blue-500 bg-blue-50 dark:bg-blue-900/20" : "bg-white dark:bg-gray-800"}`}
+          >
+            {currentPlan === plan.id && (
+              <div className="absolute -top-3 left-1/2 transform -translate-x-1/2">
+                <Badge className="bg-blue-500 text-white px-3 py-1">
+                  Current Plan
+                </Badge>
+              </div>
+            )}
+            <CardContent className="pt-8 pb-8">
+              <div className="text-center space-y-4">
+                <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
+                  {plan.name}
+                </h3>
+                <div className="text-3xl font-bold text-gray-900 dark:text-gray-100">
+                  ${plan.price}
+                  <span className="text-sm font-normal text-gray-500">
+                    /month
+                  </span>
+                </div>
+                <ul className="space-y-2 text-sm text-gray-600 dark:text-gray-300">
+                  {plan.features.map((feature, index) => (
+                    <li key={index} className="flex items-center gap-2">
+                      <CheckCircle className="h-4 w-4 text-green-500" />
+                      {feature}
+                    </li>
+                  ))}
+                </ul>
+                <Button
+                  onClick={() => handlePlanChange(plan.id)}
+                  disabled={isChangingPlan || currentPlan === plan.id}
+                  className={`w-full ${
+                    currentPlan === plan.id
+                      ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                      : "bg-blue-600 hover:bg-blue-700 text-white"
+                  }`}
+                >
+                  {isChangingPlan && selectedPlan === plan.id ? (
+                    <LoadingSpinner size="sm" className="mr-2" />
+                  ) : null}
+                  {currentPlan === plan.id
+                    ? "Current Plan"
+                    : isChangingPlan && selectedPlan === plan.id
+                      ? "Scheduling..."
+                      : "Select Plan"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+        <div className="flex items-start gap-3">
+          <AlertCircle className="h-5 w-5 text-blue-600 mt-0.5" />
+          <div>
+            <h4 className="font-medium text-blue-900 dark:text-blue-100 mb-1">
+              Plan Change Information
+            </h4>
+            <p className="text-sm text-blue-700 dark:text-blue-300">
+              Plan changes are scheduled for your next billing cycle. You'll
+              continue to enjoy your current plan's features until then. No
+              immediate charges will be applied.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 // Optimized Stripe Customer Portal Component with OTP Security
@@ -228,15 +417,26 @@ const BillingManagement = () => {
                 </div>
               </div>
 
-              <Button
-                onClick={handleOpenPortal}
-                disabled={loading}
-                className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white px-8 py-3 rounded-xl font-semibold transition-all duration-200 transform hover:scale-[1.02] shadow-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
-                type="button"
-              >
-                <CreditCard className="h-5 w-5 mr-2" />
-                {loading ? "Sending Security Code..." : "Open Billing Portal"}
-              </Button>
+              <div className="space-y-4">
+                <Button
+                  onClick={handleOpenPortal}
+                  disabled={loading}
+                  className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white px-8 py-3 rounded-xl font-semibold transition-all duration-200 transform hover:scale-[1.02] shadow-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                  type="button"
+                >
+                  <CreditCard className="h-5 w-5 mr-2" />
+                  {loading ? "Sending Security Code..." : "Open Billing Portal"}
+                </Button>
+
+                <Button
+                  onClick={() => handleSidebarClick("Change Plan")}
+                  variant="outline"
+                  className="w-full border-2 border-blue-200 hover:border-blue-300 text-blue-700 hover:text-blue-800 hover:bg-blue-50 px-8 py-3 rounded-xl font-semibold transition-all duration-200"
+                >
+                  <span className="mr-2">🔄</span>
+                  Change Plan
+                </Button>
+              </div>
 
               {/* OTP Verification Dialog */}
               <Dialog
@@ -384,7 +584,6 @@ const Home = () => {
   const [activeNumbersCount, setActiveNumbersCount] = useState(0);
   const [activeFlowsCount, setActiveFlowsCount] = useState(0);
   const [totalMinutesUsed, setTotalMinutesUsed] = useState(0);
-  const { theme, toggleTheme } = useTheme();
 
   const [formData, setFormData] = useState({
     email: "",
@@ -638,8 +837,7 @@ const Home = () => {
     if (label === "Settings") {
       setIsSettingsOpen(true);
     } else if (label === "Change Plan") {
-      // Redirect to plan selection with change plan flag
-      window.location.href = "/plan-selection?change_plan=true";
+      setActiveTab("Change Plan");
     } else {
       setActiveTab(label);
     }
@@ -798,22 +996,10 @@ const Home = () => {
           onToggleCollapse={handleToggleSidebar}
         />
         <main className="flex-1 overflow-auto hide-scrollbar">
-          <div className="container mx-auto px-6 pt-4 pb-2 flex justify-between items-center">
-            <Button
-              onClick={toggleTheme}
-              variant="outline"
-              size="icon"
-              className="rounded-full h-9 w-9 bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-            >
-              {theme === "light" ? (
-                <Moon className="h-4 w-4 text-gray-600 dark:text-gray-300" />
-              ) : (
-                <Sun className="h-4 w-4 text-gray-600 dark:text-gray-300" />
-              )}
-            </Button>
+          <div className="container mx-auto px-6 pt-4 pb-2 flex justify-end items-center">
             <Button
               onClick={handleRefresh}
-              className="bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white rounded-full px-4 h-9 shadow-sm transition-colors flex items-center gap-2"
+              className="bg-blue-500 hover:bg-blue-600 text-white rounded-full px-4 h-9 shadow-sm transition-colors flex items-center gap-2"
             >
               <RefreshCw
                 className={`h-4 w-4 ${loading ? "animate-spin" : ""}`}
@@ -827,6 +1013,9 @@ const Home = () => {
               "transition-all duration-300 ease-in-out",
             )}
           >
+            {/* Plan Expiration Notification */}
+            <PlanExpirationNotification subscriptionData={subscriptionData} />
+
             {/* Content based on active tab */}
             {activeTab === "Home" && (
               <div className="space-y-8">
@@ -1011,6 +1200,7 @@ const Home = () => {
 
             {activeTab === "Billing" && <BillingManagement />}
             {activeTab === "Payment History" && <BillingManagement />}
+            {activeTab === "Change Plan" && <PlanChangeComponent />}
           </div>
         </main>
       </div>

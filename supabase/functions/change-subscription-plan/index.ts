@@ -97,7 +97,7 @@ Deno.serve(async (req) => {
       `Changing plan from ${subscription.plan_id} to ${newPlanId} for next billing cycle`,
     );
 
-    // Update subscription for next billing cycle with no immediate charge
+    // Schedule plan change for next billing cycle with no immediate charge
     const updatedSubscription = await stripe.subscriptions.update(
       subscription.stripe_subscription_id,
       {
@@ -107,17 +107,30 @@ Deno.serve(async (req) => {
             price: newPriceId,
           },
         ],
-        proration_behavior: "none", // No charge now
+        proration_behavior: "none", // No immediate charge
         billing_cycle_anchor: "unchanged", // Keep current billing cycle
         metadata: {
           ...stripeSubscription.metadata,
           old_plan_id: subscription.plan_id,
           new_plan_id: newPlanId,
           plan_change_scheduled: "true",
-          next_billing_cycle: "true",
+          scheduled_for_next_cycle: "true",
         },
       },
     );
+
+    // Update the database to reflect the scheduled plan change
+    const { error: dbUpdateError } = await supabase
+      .from("user_subscriptions")
+      .update({
+        scheduled_plan_change: newPlanId,
+        plan_change_date: new Date(
+          updatedSubscription.current_period_end * 1000,
+        ).toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("user_id", userId)
+      .eq("status", "active");
 
     console.log("Plan change scheduled successfully:", {
       subscriptionId: updatedSubscription.id,
@@ -131,12 +144,13 @@ Deno.serve(async (req) => {
     return new Response(
       JSON.stringify({
         success: true,
-        message: `Plan change scheduled for next billing cycle. Your ${newPlanId} plan will be active on ${new Date(updatedSubscription.current_period_end * 1000).toLocaleDateString()}.`,
+        message: `Plan change scheduled successfully! Your ${newPlanId} plan will be active on ${new Date(updatedSubscription.current_period_end * 1000).toLocaleDateString()}. You'll continue to enjoy your current ${subscription.plan_id} plan until then.`,
         nextBillingDate: new Date(
           updatedSubscription.current_period_end * 1000,
         ).toISOString(),
         oldPlan: subscription.plan_id,
         newPlan: newPlanId,
+        scheduledChange: true,
       }),
       {
         status: 200,

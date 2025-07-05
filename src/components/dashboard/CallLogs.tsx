@@ -559,11 +559,12 @@ export default function CallLogs({ phoneNumber }: CallLogsProps = {}) {
                                 ? `${Math.floor(log.call_duration / 60)}:${(log.call_duration % 60).toString().padStart(2, "0")}`
                                 : "0:00"}
                             </span>
-                            {log.call_duration && log.call_duration > 0 && (
-                              <span className="text-xs text-blue-600 font-medium">
-                                Exact: {(log.call_duration / 60).toFixed(2)} min
-                              </span>
-                            )}
+                            <span className="text-xs text-blue-600 font-medium">
+                              Exact: {(log.call_duration / 60).toFixed(2)} min
+                            </span>
+                            <span className="text-xs text-green-600 font-medium">
+                              Billing: {Math.ceil(log.call_duration / 60)} min
+                            </span>
                           </div>
                         </div>
                       </TableCell>

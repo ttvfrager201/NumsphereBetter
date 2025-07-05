@@ -294,15 +294,26 @@ const Sidebar = ({
                   </div>
                 </div>
 
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="w-full text-xs h-8 bg-white/50 hover:bg-white/80"
-                  onClick={() => onItemClick("Change Plan")}
-                >
-                  <CreditCard size={12} className="mr-1" />
-                  Manage Plan
-                </Button>
+                <div className="space-y-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="w-full text-xs h-8 bg-white/50 hover:bg-white/80"
+                    onClick={() => onItemClick("Billing")}
+                  >
+                    <CreditCard size={12} className="mr-1" />
+                    Manage Plan
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="w-full text-xs h-8 bg-gradient-to-r from-blue-50 to-purple-50 hover:from-blue-100 hover:to-purple-100 border-blue-200 text-blue-700 hover:text-blue-800"
+                    onClick={() => onItemClick("Change Plan")}
+                  >
+                    <span className="mr-1">🔄</span>
+                    Change Plan
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
