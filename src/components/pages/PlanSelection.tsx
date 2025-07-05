@@ -23,6 +23,7 @@ import {
   Crown,
   ChevronDown,
   LogOut,
+  Calendar,
 } from "lucide-react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../../../supabase/auth";
@@ -128,32 +129,48 @@ export default function PlanSelection({
   const [currentPlan, setCurrentPlan] = useState<string | null>(null);
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [subscriptionData, setSubscriptionData] = useState<any>(null);
+  const [nextBillingDate, setNextBillingDate] = useState<string | null>(null);
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
   const { toast } = useToast();
 
-  // Check if this is a plan change request
+  // Check if this is a plan change request and fetch subscription data
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const changePlan = urlParams.get("change_plan");
     if (changePlan === "true") {
       setIsChangingPlan(true);
-      // Get current plan from user subscription
-      const fetchCurrentPlan = async () => {
-        if (user) {
-          const { data } = await supabase
-            .from("user_subscriptions")
-            .select("plan_id")
-            .eq("user_id", user.id)
-            .eq("status", "active")
-            .single();
-          if (data) {
-            setCurrentPlan(data.plan_id);
-          }
-        }
-      };
-      fetchCurrentPlan();
     }
+
+    // Get current plan and subscription data
+    const fetchSubscriptionData = async () => {
+      if (user) {
+        const { data } = await supabase
+          .from("user_subscriptions")
+          .select("plan_id, created_at, updated_at")
+          .eq("user_id", user.id)
+          .eq("status", "active")
+          .single();
+        if (data) {
+          setCurrentPlan(data.plan_id);
+          setSubscriptionData(data);
+
+          // Calculate next billing date (30 days from creation or last update)
+          const lastUpdate = new Date(data.updated_at || data.created_at);
+          const nextBilling = new Date(lastUpdate);
+          nextBilling.setDate(nextBilling.getDate() + 30);
+          setNextBillingDate(
+            nextBilling.toLocaleDateString("en-US", {
+              year: "numeric",
+              month: "long",
+              day: "numeric",
+            }),
+          );
+        }
+      }
+    };
+    fetchSubscriptionData();
   }, [user]);
 
   const handleSignOut = async () => {
@@ -416,6 +433,62 @@ export default function PlanSelection({
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-6 py-12">
+        {/* Thank You Banner */}
+        {hasActiveSubscription && (
+          <div className="mb-8 bg-gradient-to-r from-green-500 to-blue-600 rounded-2xl p-8 text-white text-center">
+            <div className="inline-flex items-center justify-center w-16 h-16 bg-white/20 rounded-full mb-4">
+              <Check className="h-8 w-8 text-white" />
+            </div>
+            <h2 className="text-3xl font-bold mb-2">
+              Thank You for Choosing NumSphere! 🎉
+            </h2>
+            <p className="text-xl opacity-90">
+              We appreciate your trust in our VoIP services. Your subscription
+              is active and ready to use!
+            </p>
+          </div>
+        )}
+
+        {/* Next Billing Cycle Card */}
+        {subscriptionData && nextBillingDate && (
+          <div className="mb-8">
+            <Card className="bg-gradient-to-br from-blue-50 to-purple-50 border-blue-200">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-blue-900">
+                  <Calendar className="h-5 w-5" />
+                  Next Billing Cycle
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="text-center">
+                    <p className="text-sm text-gray-600 mb-1">
+                      Next Billing Date
+                    </p>
+                    <p className="text-lg font-semibold text-gray-900">
+                      {nextBillingDate}
+                    </p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-sm text-gray-600 mb-1">Current Plan</p>
+                    <p className="text-lg font-semibold text-gray-900 capitalize">
+                      {subscriptionData.plan_id} Plan
+                    </p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-sm text-gray-600 mb-1">Amount</p>
+                    <p className="text-lg font-semibold text-gray-900">
+                      $
+                      {plans.find((p) => p.id === subscriptionData.plan_id)
+                        ?.price || 0}
+                      /month
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
         <div className="text-center mb-12">
           <h2 className="text-4xl md:text-5xl font-bold tracking-tight mb-4 bg-gradient-to-r from-gray-900 to-blue-900 bg-clip-text text-transparent">
             {isChangingPlan ? "Change Your Plan" : "Choose Your Plan"}

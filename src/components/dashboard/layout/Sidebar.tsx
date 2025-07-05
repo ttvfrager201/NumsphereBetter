@@ -351,21 +351,18 @@ const Sidebar = ({
                 variant="ghost"
                 className="w-full justify-start gap-3 h-9 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-100"
               >
-                <span className="h-2 w-2 rounded-full bg-green-500"></span>
                 Active Numbers
               </Button>
               <Button
                 variant="ghost"
                 className="w-full justify-start gap-3 h-9 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-100"
               >
-                <span className="h-2 w-2 rounded-full bg-blue-500"></span>
                 Call Flows
               </Button>
               <Button
                 variant="ghost"
                 className="w-full justify-start gap-3 h-9 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-100"
               >
-                <span className="h-2 w-2 rounded-full bg-purple-500"></span>
                 Usage Stats
               </Button>
             </div>

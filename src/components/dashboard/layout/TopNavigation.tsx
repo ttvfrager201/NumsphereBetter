@@ -29,7 +29,12 @@ import { supabase } from "../../../../supabase/supabase";
 
 interface TopNavigationProps {
   onSearch?: (query: string) => void;
-  notifications?: Array<{ id: string; title: string }>;
+  notifications?: Array<{
+    id: string;
+    title: string;
+    type?: string;
+    date?: string;
+  }>;
   onSettingsClick?: () => void;
 }
 
@@ -42,15 +47,24 @@ interface UserProfile {
 
 const TopNavigation = ({
   onSearch = () => {},
-  notifications = [
-    { id: "1", title: "New project assigned" },
-    { id: "2", title: "Meeting reminder" },
-  ],
+  notifications = [],
   onSettingsClick = () => {},
 }: TopNavigationProps) => {
   const { user, signOut } = useAuth();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [dynamicNotifications, setDynamicNotifications] = useState<
+    Array<{
+      id: string;
+      title: string;
+      type?: string;
+      date?: string;
+      read?: boolean;
+    }>
+  >([]);
+  const [readNotifications, setReadNotifications] = useState<Set<string>>(
+    new Set(),
+  );
 
   useEffect(() => {
     const fetchUserProfile = async () => {
@@ -71,8 +85,121 @@ const TopNavigation = ({
       }
     };
 
+    const fetchNotifications = async () => {
+      if (!user) return;
+
+      try {
+        // Fetch subscription data for billing notifications
+        const { data: subData } = await supabase
+          .from("user_subscriptions")
+          .select("plan_id, created_at, updated_at")
+          .eq("user_id", user.id)
+          .eq("status", "active")
+          .single();
+
+        const newNotifications = [];
+
+        if (subData) {
+          // Calculate next billing date
+          const lastUpdate = new Date(subData.updated_at || subData.created_at);
+          const nextBilling = new Date(lastUpdate);
+          nextBilling.setDate(nextBilling.getDate() + 30);
+
+          // Check if billing is within 7 days
+          const daysUntilBilling = Math.ceil(
+            (nextBilling.getTime() - new Date().getTime()) /
+              (1000 * 60 * 60 * 24),
+          );
+
+          if (daysUntilBilling <= 7 && daysUntilBilling > 0) {
+            newNotifications.push({
+              id: "billing-reminder",
+              title: `Billing reminder: Your ${subData.plan_id} plan renews in ${daysUntilBilling} day${daysUntilBilling > 1 ? "s" : ""}`,
+              type: "billing",
+              date: nextBilling.toLocaleDateString(),
+              read: readNotifications.has("billing-reminder"),
+            });
+          }
+        }
+
+        // Check for recent call activity
+        const { data: recentCalls } = await supabase
+          .from("call_logs")
+          .select("id, created_at")
+          .eq("user_id", user.id)
+          .gte(
+            "created_at",
+            new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+          )
+          .limit(5);
+
+        if (recentCalls && recentCalls.length > 0) {
+          newNotifications.push({
+            id: "recent-calls",
+            title: `You have ${recentCalls.length} new call${recentCalls.length > 1 ? "s" : ""} in the last 24 hours`,
+            type: "activity",
+            date: new Date().toLocaleDateString(),
+            read: readNotifications.has("recent-calls"),
+          });
+        }
+
+        // Welcome notification for new users
+        if (userProfile?.created_at) {
+          const accountAge = Math.ceil(
+            (new Date().getTime() -
+              new Date(userProfile.created_at).getTime()) /
+              (1000 * 60 * 60 * 24),
+          );
+          if (accountAge <= 3) {
+            newNotifications.push({
+              id: "welcome",
+              title:
+                "Welcome to NumSphere! Get started by purchasing your first phone number",
+              type: "welcome",
+              date: new Date().toLocaleDateString(),
+              read: readNotifications.has("welcome"),
+            });
+          }
+        }
+
+        setDynamicNotifications(newNotifications);
+      } catch (error) {
+        console.error("Error fetching notifications:", error);
+      }
+    };
+
     fetchUserProfile();
-  }, [user]);
+    fetchNotifications();
+  }, [user, userProfile?.created_at, readNotifications]);
+
+  const handleMarkAsRead = (notificationId: string) => {
+    setReadNotifications((prev) => new Set([...prev, notificationId]));
+    // Store in localStorage to persist across sessions
+    const stored = JSON.parse(
+      localStorage.getItem("readNotifications") || "[]",
+    );
+    const updated = [...new Set([...stored, notificationId])];
+    localStorage.setItem("readNotifications", JSON.stringify(updated));
+  };
+
+  const handleMarkAllAsRead = () => {
+    const allIds = dynamicNotifications.map((n) => n.id);
+    setReadNotifications((prev) => new Set([...prev, ...allIds]));
+    // Store in localStorage
+    const stored = JSON.parse(
+      localStorage.getItem("readNotifications") || "[]",
+    );
+    const updated = [...new Set([...stored, ...allIds])];
+    localStorage.setItem("readNotifications", JSON.stringify(updated));
+  };
+
+  // Load read notifications from localStorage on mount
+  useEffect(() => {
+    const stored = JSON.parse(
+      localStorage.getItem("readNotifications") || "[]",
+    );
+    setReadNotifications(new Set(stored));
+  }, []);
 
   if (!user) return null;
 
@@ -124,9 +251,12 @@ const TopNavigation = ({
                     className="relative rounded-full h-9 w-9 bg-gray-100 hover:bg-gray-200 transition-colors"
                   >
                     <Bell className="h-4 w-4 text-gray-700" />
-                    {notifications.length > 0 && (
+                    {(notifications.length > 0 ||
+                      dynamicNotifications.filter((n) => !n.read).length >
+                        0) && (
                       <span className="absolute -top-1 -right-1 bg-blue-500 text-white text-[10px] rounded-full h-4 w-4 flex items-center justify-center font-medium border border-white">
-                        {notifications.length}
+                        {notifications.length +
+                          dynamicNotifications.filter((n) => !n.read).length}
                       </span>
                     )}
                   </Button>
@@ -135,18 +265,84 @@ const TopNavigation = ({
                   align="end"
                   className="rounded-xl overflow-hidden p-2 border border-gray-200 shadow-lg"
                 >
-                  <DropdownMenuLabel className="text-sm font-medium text-gray-900 px-2">
-                    Notifications
-                  </DropdownMenuLabel>
+                  <div className="flex items-center justify-between px-2 py-1">
+                    <DropdownMenuLabel className="text-sm font-medium text-gray-900 p-0">
+                      Notifications
+                    </DropdownMenuLabel>
+                    {dynamicNotifications.some((n) => !n.read) && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleMarkAllAsRead}
+                        className="text-xs text-blue-600 hover:text-blue-700 h-6 px-2"
+                      >
+                        Mark all read
+                      </Button>
+                    )}
+                  </div>
                   <DropdownMenuSeparator className="my-1 bg-gray-100" />
-                  {notifications.map((notification) => (
-                    <DropdownMenuItem
-                      key={notification.id}
-                      className="rounded-lg text-sm py-2 focus:bg-gray-100"
-                    >
-                      {notification.title}
+                  {dynamicNotifications.length === 0 &&
+                  notifications.length === 0 ? (
+                    <DropdownMenuItem className="rounded-lg text-sm py-2 text-gray-500 italic">
+                      No new notifications
                     </DropdownMenuItem>
-                  ))}
+                  ) : (
+                    <>
+                      {dynamicNotifications.map((notification) => (
+                        <div key={notification.id} className="relative group">
+                          <DropdownMenuItem
+                            className={`rounded-lg text-sm py-3 focus:bg-gray-100 flex flex-col items-start gap-1 pr-8 ${
+                              notification.read ? "opacity-60" : ""
+                            }`}
+                          >
+                            <div className="flex items-start justify-between w-full">
+                              <div className="flex-1">
+                                <span
+                                  className={`font-medium ${
+                                    notification.read
+                                      ? "text-gray-600"
+                                      : "text-gray-900"
+                                  }`}
+                                >
+                                  {notification.title}
+                                </span>
+                                {notification.date && (
+                                  <span className="text-xs text-gray-500 block mt-1">
+                                    {notification.date}
+                                  </span>
+                                )}
+                              </div>
+                              {!notification.read && (
+                                <div className="w-2 h-2 bg-blue-500 rounded-full ml-2 mt-1 flex-shrink-0"></div>
+                              )}
+                            </div>
+                          </DropdownMenuItem>
+                          {!notification.read && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleMarkAsRead(notification.id);
+                              }}
+                              className="absolute right-1 top-1/2 transform -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity text-xs text-blue-600 hover:text-blue-700 h-6 w-6 p-0"
+                              title="Mark as read"
+                            >
+                              ✓
+                            </Button>
+                          )}
+                        </div>
+                      ))}
+                      {notifications.map((notification) => (
+                        <DropdownMenuItem
+                          key={notification.id}
+                          className="rounded-lg text-sm py-2 focus:bg-gray-100"
+                        >
+                          {notification.title}
+                        </DropdownMenuItem>
+                      ))}
+                    </>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             </TooltipTrigger>

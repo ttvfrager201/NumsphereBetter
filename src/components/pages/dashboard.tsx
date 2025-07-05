@@ -51,6 +51,7 @@ import {
   XCircle,
   AlertCircle,
   Clock,
+  Calendar,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "../../../supabase/auth";
@@ -74,6 +75,13 @@ const PlanChangeComponent = () => {
   const [isChangingPlan, setIsChangingPlan] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
   const [currentPlan, setCurrentPlan] = useState<string | null>(null);
+  const [scheduledPlanChange, setScheduledPlanChange] = useState<string | null>(
+    null,
+  );
+  const [nextBillingDate, setNextBillingDate] = useState<string | null>(null);
+  const [actualPlanFromStripe, setActualPlanFromStripe] = useState<
+    string | null
+  >(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -81,31 +89,115 @@ const PlanChangeComponent = () => {
       if (!user) return;
 
       try {
-        const { data: subscription } = await supabase
-          .from("user_subscriptions")
-          .select("plan_id")
-          .eq("user_id", user.id)
-          .eq("status", "active")
-          .single();
+        // Use edge function to get payment history and subscription data
+        const { data: paymentData, error: paymentError } =
+          await supabase.functions.invoke(
+            "supabase-functions-get-payment-history",
+            {
+              body: { userId: user.id },
+            },
+          );
 
-        if (subscription) {
-          setCurrentPlan(subscription.plan_id);
+        if (!paymentError && paymentData?.subscription) {
+          const stripeSubscription = paymentData.subscription;
+          const actualPlanName = stripeSubscription.name || "starter";
+
+          // Extract actual plan ID from Stripe subscription name
+          let actualPlanId = "starter";
+          if (actualPlanName.toLowerCase().includes("enterprise")) {
+            actualPlanId = "enterprise";
+          } else if (actualPlanName.toLowerCase().includes("business")) {
+            actualPlanId = "business";
+          } else if (actualPlanName.toLowerCase().includes("starter")) {
+            actualPlanId = "starter";
+          }
+
+          setActualPlanFromStripe(actualPlanId);
+          setCurrentPlan(actualPlanId);
+
+          // Use Stripe billing date if available
+          if (stripeSubscription.current_period_end) {
+            const actualNextBilling = new Date(
+              stripeSubscription.current_period_end * 1000,
+            );
+            setNextBillingDate(
+              actualNextBilling.toLocaleDateString("en-US", {
+                year: "numeric",
+                month: "long",
+                day: "numeric",
+              }),
+            );
+          }
+
+          // Check for scheduled plan changes (this would be in Stripe metadata)
+          if (stripeSubscription.metadata?.scheduled_plan_change) {
+            setScheduledPlanChange(
+              stripeSubscription.metadata.scheduled_plan_change,
+            );
+          }
+        } else {
+          console.error("Error fetching payment data:", paymentError);
+          toast({
+            title: "Error",
+            description:
+              "Failed to load current plan information. Please refresh the page.",
+            variant: "destructive",
+          });
         }
       } catch (error) {
         console.error("Error fetching current plan:", error);
+        toast({
+          title: "Error",
+          description:
+            "Failed to load current plan information. Please refresh the page.",
+          variant: "destructive",
+        });
       }
     };
 
     fetchCurrentPlan();
-  }, [user]);
+  }, [user, toast]);
 
   const handlePlanChange = async (newPlanId: string) => {
-    if (!user || !currentPlan || newPlanId === currentPlan) return;
+    if (!user) {
+      toast({
+        title: "Authentication Error",
+        description: "Please sign in to change your plan.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!currentPlan) {
+      toast({
+        title: "Error",
+        description:
+          "Unable to determine current plan. Please refresh the page.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (newPlanId === currentPlan) {
+      toast({
+        title: "Same Plan Selected",
+        description: "You're already on this plan.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     setIsChangingPlan(true);
     setSelectedPlan(newPlanId);
 
     try {
+      console.log("Attempting to change plan:", {
+        userId: user.id,
+        currentPlan,
+        newPlanId,
+        actualPlanFromStripe,
+      });
+
       const { data, error } = await supabase.functions.invoke(
         "supabase-functions-change-subscription-plan",
         {
@@ -116,26 +208,46 @@ const PlanChangeComponent = () => {
         },
       );
 
+      console.log("Plan change response:", { data, error });
+
       if (error) {
         console.error("Plan change error:", error);
         toast({
           title: "Plan Change Failed",
           description:
             error.message ||
-            "Failed to schedule plan change. Please try again.",
+            "Failed to schedule plan change. Please try again or contact support.",
           variant: "destructive",
         });
       } else if (data?.success) {
+        // Update local state to reflect the scheduled change
+        setScheduledPlanChange(newPlanId);
         toast({
           title: "🎉 Plan Change Scheduled!",
-          description: data.message,
+          description:
+            data.message ||
+            `Your plan will change to ${newPlanId} at your next billing cycle.`,
+        });
+
+        // Refresh the plan data after successful change
+        setTimeout(() => {
+          window.location.reload();
+        }, 2000);
+      } else {
+        toast({
+          title: "Plan Change Failed",
+          description:
+            data?.error || "Unknown error occurred. Please try again.",
+          variant: "destructive",
         });
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Plan change exception:", error);
       toast({
         title: "Plan Change Failed",
-        description: "An unexpected error occurred. Please try again.",
+        description:
+          error.message ||
+          "An unexpected error occurred. Please try again or contact support.",
         variant: "destructive",
       });
     } finally {
@@ -186,66 +298,139 @@ const PlanChangeComponent = () => {
         <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-4">
           Change Your Plan
         </h2>
-        <p className="text-gray-600 dark:text-gray-300 mb-8">
+        <p className="text-gray-600 dark:text-gray-300 mb-4">
           Upgrade or downgrade your plan. Changes will take effect at your next
           billing cycle.
         </p>
+        {currentPlan && (
+          <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-800 rounded-lg text-sm font-medium">
+            <span>
+              Current Plan:{" "}
+              {currentPlan.charAt(0).toUpperCase() + currentPlan.slice(1)}
+            </span>
+            {actualPlanFromStripe && actualPlanFromStripe !== currentPlan && (
+              <span className="text-xs text-blue-600">
+                (Synced from Stripe: {actualPlanFromStripe})
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
+      {/* Scheduled Plan Change Info */}
+      {scheduledPlanChange && scheduledPlanChange !== currentPlan && (
+        <div className="mb-6 p-4 bg-gradient-to-r from-green-50 to-blue-50 border border-green-200 rounded-lg">
+          <div className="flex items-start gap-3">
+            <Calendar className="h-5 w-5 text-green-600 mt-0.5" />
+            <div>
+              <h4 className="font-medium text-green-900 mb-1">
+                Plan Change Scheduled
+              </h4>
+              <p className="text-sm text-green-700">
+                Your plan will change from{" "}
+                <strong>
+                  {currentPlan?.charAt(0).toUpperCase() + currentPlan?.slice(1)}
+                </strong>{" "}
+                to{" "}
+                <strong>
+                  {scheduledPlanChange.charAt(0).toUpperCase() +
+                    scheduledPlanChange.slice(1)}
+                </strong>{" "}
+                on <strong>{nextBillingDate}</strong>. This change will be
+                reflected in your Stripe customer portal.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {plans.map((plan) => (
-          <Card
-            key={plan.id}
-            className={`relative ${currentPlan === plan.id ? "ring-2 ring-blue-500 bg-blue-50 dark:bg-blue-900/20" : "bg-white dark:bg-gray-800"}`}
-          >
-            {currentPlan === plan.id && (
-              <div className="absolute -top-3 left-1/2 transform -translate-x-1/2">
-                <Badge className="bg-blue-500 text-white px-3 py-1">
-                  Current Plan
-                </Badge>
-              </div>
-            )}
-            <CardContent className="pt-8 pb-8">
-              <div className="text-center space-y-4">
-                <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
-                  {plan.name}
-                </h3>
-                <div className="text-3xl font-bold text-gray-900 dark:text-gray-100">
-                  ${plan.price}
-                  <span className="text-sm font-normal text-gray-500">
-                    /month
-                  </span>
+        {plans.map((plan) => {
+          const isCurrentPlan = currentPlan === plan.id;
+          const isScheduledPlan = scheduledPlanChange === plan.id;
+
+          return (
+            <Card
+              key={plan.id}
+              className={`relative ${
+                isCurrentPlan
+                  ? "ring-2 ring-blue-500 bg-blue-50 dark:bg-blue-900/20"
+                  : isScheduledPlan
+                    ? "ring-2 ring-green-500 bg-green-50 dark:bg-green-900/20"
+                    : "bg-white dark:bg-gray-800"
+              }`}
+            >
+              {isCurrentPlan && (
+                <div className="absolute -top-3 left-1/2 transform -translate-x-1/2">
+                  <Badge className="bg-blue-500 text-white px-3 py-1">
+                    Current Plan
+                  </Badge>
                 </div>
-                <ul className="space-y-2 text-sm text-gray-600 dark:text-gray-300">
-                  {plan.features.map((feature, index) => (
-                    <li key={index} className="flex items-center gap-2">
-                      <CheckCircle className="h-4 w-4 text-green-500" />
-                      {feature}
-                    </li>
-                  ))}
-                </ul>
-                <Button
-                  onClick={() => handlePlanChange(plan.id)}
-                  disabled={isChangingPlan || currentPlan === plan.id}
-                  className={`w-full ${
-                    currentPlan === plan.id
-                      ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-                      : "bg-blue-600 hover:bg-blue-700 text-white"
-                  }`}
-                >
-                  {isChangingPlan && selectedPlan === plan.id ? (
-                    <LoadingSpinner size="sm" className="mr-2" />
-                  ) : null}
-                  {currentPlan === plan.id
-                    ? "Current Plan"
-                    : isChangingPlan && selectedPlan === plan.id
-                      ? "Scheduling..."
-                      : "Select Plan"}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+              )}
+              {isScheduledPlan && !isCurrentPlan && (
+                <div className="absolute -top-3 left-1/2 transform -translate-x-1/2">
+                  <Badge className="bg-green-500 text-white px-3 py-1">
+                    Scheduled for {nextBillingDate}
+                  </Badge>
+                </div>
+              )}
+              <CardContent className="pt-8 pb-8">
+                <div className="text-center space-y-4">
+                  <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
+                    {plan.name}
+                  </h3>
+                  <div className="text-3xl font-bold text-gray-900 dark:text-gray-100">
+                    ${plan.price}
+                    <span className="text-sm font-normal text-gray-500">
+                      /month
+                    </span>
+                  </div>
+                  <ul className="space-y-2 text-sm text-gray-600 dark:text-gray-300">
+                    {plan.features.map((feature, index) => (
+                      <li key={index} className="flex items-center gap-2">
+                        <CheckCircle className="h-4 w-4 text-green-500" />
+                        {feature}
+                      </li>
+                    ))}
+                  </ul>
+                  <Button
+                    onClick={() => handlePlanChange(plan.id)}
+                    disabled={
+                      isChangingPlan ||
+                      currentPlan === plan.id ||
+                      scheduledPlanChange === plan.id ||
+                      !currentPlan
+                    }
+                    className={`w-full transition-all duration-200 ${
+                      currentPlan === plan.id
+                        ? "bg-gray-400 text-gray-600 cursor-not-allowed"
+                        : scheduledPlanChange === plan.id
+                          ? "bg-green-500 text-white cursor-not-allowed"
+                          : !currentPlan
+                            ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                            : "bg-blue-600 hover:bg-blue-700 text-white shadow-lg hover:shadow-xl transform hover:scale-[1.02]"
+                    }`}
+                  >
+                    {isChangingPlan && selectedPlan === plan.id ? (
+                      <>
+                        <LoadingSpinner size="sm" className="mr-2" />
+                        <span>Processing...</span>
+                      </>
+                    ) : currentPlan === plan.id ? (
+                      "✓ Current Plan"
+                    ) : scheduledPlanChange === plan.id ? (
+                      "✓ Scheduled"
+                    ) : !currentPlan ? (
+                      "Loading..."
+                    ) : (
+                      `Change to ${plan.name}`
+                    )}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
 
       <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
@@ -275,6 +460,7 @@ const BillingManagement = () => {
   const [otpCode, setOtpCode] = useState("");
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
   const [pendingPortalAccess, setPendingPortalAccess] = useState(false);
+  const [isRedirecting, setIsRedirecting] = useState(false);
   const { toast } = useToast();
 
   const handleOpenPortal = async (e: React.MouseEvent) => {
@@ -332,8 +518,18 @@ const BillingManagement = () => {
         setShowOtpDialog(false);
         setOtpCode("");
         setPendingPortalAccess(false);
-        // Always open in same tab to prevent refresh issues
-        window.location.href = data.customerPortalUrl;
+        setIsRedirecting(true);
+
+        // Show loading state for 2 seconds before redirect
+        toast({
+          title: "Redirecting to Billing Portal",
+          description:
+            "Please wait while we redirect you to the secure billing portal...",
+        });
+
+        setTimeout(() => {
+          window.location.href = data.customerPortalUrl;
+        }, 2000);
       } else {
         throw new Error(data?.message || "No customer portal URL available");
       }
@@ -429,7 +625,10 @@ const BillingManagement = () => {
                 </Button>
 
                 <Button
-                  onClick={() => handleSidebarClick("Change Plan")}
+                  onClick={() => {
+                    console.log("Change Plan button clicked");
+                    setActiveTab("Change Plan");
+                  }}
                   variant="outline"
                   className="w-full border-2 border-blue-200 hover:border-blue-300 text-blue-700 hover:text-blue-800 hover:bg-blue-50 px-8 py-3 rounded-xl font-semibold transition-all duration-200"
                 >
@@ -506,6 +705,24 @@ const BillingManagement = () => {
                   </div>
                 </DialogContent>
               </Dialog>
+
+              {/* Loading Screen for Redirection */}
+              {isRedirecting && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center">
+                  <div className="bg-white rounded-2xl p-8 max-w-md mx-4 text-center">
+                    <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full mb-4">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+                    </div>
+                    <h3 className="text-xl font-semibold text-gray-900 mb-2">
+                      Redirecting to Billing Portal
+                    </h3>
+                    <p className="text-gray-600">
+                      Please wait while we securely redirect you to Stripe's
+                      billing portal...
+                    </p>
+                  </div>
+                </div>
+              )}
 
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 You'll be redirected to Stripe's secure billing portal
@@ -584,6 +801,7 @@ const Home = () => {
   const [activeNumbersCount, setActiveNumbersCount] = useState(0);
   const [activeFlowsCount, setActiveFlowsCount] = useState(0);
   const [totalMinutesUsed, setTotalMinutesUsed] = useState(0);
+  const [nextBillingDate, setNextBillingDate] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     email: "",
@@ -662,54 +880,111 @@ const Home = () => {
       if (!user) return;
 
       try {
-        // Fetch user profile
-        const { data: profileData } = await supabase
-          .from("users")
-          .select("full_name, avatar_url")
-          .eq("id", user.id)
-          .single();
+        // Use user metadata from auth instead of database query
+        setUserProfile({
+          full_name: user?.user_metadata?.full_name || null,
+          avatar_url: user?.user_metadata?.avatar_url || null,
+        });
 
-        if (profileData) {
-          setUserProfile(profileData);
-        }
+        // Fetch subscription data using edge function only
+        try {
+          const { data: paymentData, error: paymentError } =
+            await supabase.functions.invoke(
+              "supabase-functions-get-payment-history",
+              {
+                body: { userId: user.id },
+              },
+            );
 
-        // Fetch subscription data - webhook managed
-        const { data: subData } = await supabase
-          .from("user_subscriptions")
-          .select(
-            "plan_id, status, created_at, stripe_customer_id, stripe_subscription_id, updated_at",
-          )
-          .eq("user_id", user.id)
-          .eq("status", "active")
-          .order("updated_at", { ascending: false })
-          .maybeSingle();
+          if (!paymentError && paymentData?.subscription) {
+            const stripeSubscription = paymentData.subscription;
 
-        if (subData) {
-          setSubscriptionData(subData);
+            // Use actual Stripe subscription data
+            const actualPlanName = stripeSubscription.name || "starter";
+            const actualAmount = stripeSubscription.amount
+              ? stripeSubscription.amount / 100
+              : 0;
+            const actualNextBilling = stripeSubscription.current_period_end
+              ? new Date(stripeSubscription.current_period_end * 1000)
+              : null;
 
-          // Set plan details with correct pricing
-          const planPricing = {
-            starter: 10, // Fixed: was 9, now 10
-            business: 29,
-            enterprise: 99,
-          };
+            // Extract plan ID from subscription name
+            let actualPlanId = "starter";
+            if (actualPlanName.toLowerCase().includes("enterprise")) {
+              actualPlanId = "enterprise";
+            } else if (actualPlanName.toLowerCase().includes("business")) {
+              actualPlanId = "business";
+            } else if (actualPlanName.toLowerCase().includes("starter")) {
+              actualPlanId = "starter";
+            }
 
+            // Set subscription data from Stripe
+            setSubscriptionData({
+              plan_id: actualPlanId,
+              status:
+                stripeSubscription.status === "active" ? "active" : "inactive",
+            });
+
+            setPlanDetails({
+              plan_id: actualPlanId,
+              amount: actualAmount,
+            });
+
+            if (actualNextBilling) {
+              setNextBillingDate(
+                actualNextBilling.toLocaleDateString("en-US", {
+                  year: "numeric",
+                  month: "long",
+                  day: "numeric",
+                }),
+              );
+            }
+          } else {
+            console.log("No subscription data available from Stripe");
+            // Set default values if no subscription found
+            setSubscriptionData({
+              plan_id: "starter",
+              status: "inactive",
+            });
+            setPlanDetails({
+              plan_id: "starter",
+              amount: 10,
+            });
+          }
+        } catch (stripeError) {
+          console.error(
+            "Error fetching Stripe subscription data:",
+            stripeError,
+          );
+          // Set default values on error
+          setSubscriptionData({
+            plan_id: "starter",
+            status: "inactive",
+          });
           setPlanDetails({
-            plan_id: subData.plan_id,
-            amount:
-              planPricing[subData.plan_id as keyof typeof planPricing] || 0,
+            plan_id: "starter",
+            amount: 10,
           });
         }
 
-        // Fetch active numbers count and calculate total minutes from call logs
-        const { data: numbersData } = await supabase
-          .from("twilio_numbers")
-          .select("id")
-          .eq("user_id", user.id)
-          .eq("status", "active");
+        // Fetch active numbers count using edge function
+        try {
+          const { data: numbersData, error: numbersError } =
+            await supabase.functions.invoke(
+              "supabase-functions-get-twilio-numbers",
+              {
+                body: { userId: user.id },
+              },
+            );
 
-        if (numbersData) {
-          setActiveNumbersCount(numbersData.length);
+          if (!numbersError && numbersData?.numbers) {
+            setActiveNumbersCount(numbersData.numbers.length);
+          } else {
+            setActiveNumbersCount(0);
+          }
+        } catch (error) {
+          console.error("Error fetching numbers count:", error);
+          setActiveNumbersCount(0);
         }
 
         // Calculate total minutes used from Twilio call logs for current month
@@ -803,16 +1078,8 @@ const Home = () => {
           setTotalMinutesUsed(0);
         }
 
-        // Fetch active flows count
-        const { data: flowsData } = await supabase
-          .from("call_flows")
-          .select("id")
-          .eq("user_id", user.id)
-          .eq("is_active", true);
-
-        if (flowsData) {
-          setActiveFlowsCount(flowsData.length);
-        }
+        // Set default flows count (can be updated when call flows edge function is available)
+        setActiveFlowsCount(0);
       } catch (error) {
         console.error("Error fetching user data:", error);
       } finally {
@@ -1036,6 +1303,46 @@ const Home = () => {
                     Manage your virtual phone numbers and call flows with ease
                   </p>
                 </div>
+
+                {/* Next Billing Cycle Card */}
+                {subscriptionData && nextBillingDate && (
+                  <div className="mb-8">
+                    <Card className="bg-gradient-to-br from-blue-50 to-purple-50 border-blue-200">
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2 text-blue-900">
+                          <Calendar className="h-5 w-5" />
+                          Next Billing Cycle
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div className="text-center">
+                            <p className="text-sm text-gray-600 mb-1">
+                              Next Billing Date
+                            </p>
+                            <p className="text-lg font-semibold text-gray-900">
+                              {nextBillingDate}
+                            </p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-sm text-gray-600 mb-1">
+                              Current Plan
+                            </p>
+                            <p className="text-lg font-semibold text-gray-900 capitalize">
+                              {subscriptionData.plan_id} Plan
+                            </p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-sm text-gray-600 mb-1">Amount</p>
+                            <p className="text-lg font-semibold text-gray-900">
+                              ${planDetails?.amount || 0}/month
+                            </p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+                )}
 
                 {/* Dashboard Cards */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
