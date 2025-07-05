@@ -242,7 +242,6 @@ function generateBlockBasedTwiML(blocks, _voice, statusCallback) {
           const holdMusicUrl = block.config.holdMusicUrl;
           // Optional loop count for hold music (default to 10 loops)
           const holdMusicLoop = block.config.holdMusicLoop || 10;
-
           if (holdMusicUrl) {
             // Play hold music while dialing
             blockTwiml += `  <Dial timeout="${timeout}" statusCallback="${statusCallback}">\n`;
