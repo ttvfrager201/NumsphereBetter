@@ -647,18 +647,6 @@ const BillingManagement = () => {
                   <CreditCard className="h-5 w-5 mr-2" />
                   {loading ? "Sending Security Code..." : "Open Billing Portal"}
                 </Button>
-
-                <Button
-                  onClick={() => {
-                    console.log("Change Plan button clicked from billing page");
-                    setActiveTab("Change Plan");
-                  }}
-                  variant="outline"
-                  className="w-full border-2 border-blue-200 hover:border-blue-300 text-blue-700 hover:text-blue-800 hover:bg-blue-50 px-8 py-3 rounded-xl font-semibold transition-all duration-200"
-                >
-                  <span className="mr-2">🔄</span>
-                  Change Plan
-                </Button>
               </div>
 
               {/* OTP Verification Dialog */}
@@ -821,6 +809,13 @@ const Home = () => {
     plan_id: string;
     amount: number;
   } | null>(null);
+  const [scheduledPlanChange, setScheduledPlanChange] = useState<string | null>(
+    null,
+  );
+  const [nextBillingPlan, setNextBillingPlan] = useState<{
+    plan_id: string;
+    amount: number;
+  } | null>(null);
   const [loadingStripeData, setLoadingStripeData] = useState(true);
   const [activeNumbersCount, setActiveNumbersCount] = useState(0);
   const [activeFlowsCount, setActiveFlowsCount] = useState(0);
@@ -910,38 +905,28 @@ const Home = () => {
           avatar_url: user?.user_metadata?.avatar_url || null,
         });
 
-        // First get database subscription data as source of truth for current plan
+        // Get accurate billing information from Stripe via payment history function
         try {
-          // Try to get subscription (active or any status)
+          // First get database subscription data as source of truth for current plan
           const { data: dbSubscription, error: dbError } = await supabase
             .from("user_subscriptions")
             .select(
               "plan_id, status, stripe_subscription_id, scheduled_plan_change, current_period_end",
             )
             .eq("user_id", user.id)
+            .eq("status", "active")
             .maybeSingle();
 
-          console.log("Raw database subscription query result:", {
+          console.log("Database subscription query result:", {
             dbSubscription,
             dbError,
           });
 
           if (!dbError && dbSubscription) {
-            console.log("Database subscription data:", dbSubscription);
-
             // Use database plan_id as the current active plan
             const currentPlanId = dbSubscription.plan_id || "starter";
             const subscriptionStatus = dbSubscription.status || "active";
-
-            // Set plan pricing based on current plan
-            const planPricing = {
-              starter: 10,
-              business: 29,
-              enterprise: 99,
-            };
-
-            const currentAmount =
-              planPricing[currentPlanId as keyof typeof planPricing] || 10;
+            const scheduledChange = dbSubscription.scheduled_plan_change;
 
             // Set subscription data from database (source of truth)
             setSubscriptionData({
@@ -949,43 +934,61 @@ const Home = () => {
               status: subscriptionStatus,
             });
 
-            setPlanDetails({
-              plan_id: currentPlanId,
-              amount: currentAmount,
-            });
+            // Set scheduled plan change
+            setScheduledPlanChange(scheduledChange);
 
-            // Set next billing date from database or Stripe
-            if (dbSubscription.current_period_end) {
-              const billingDate = new Date(dbSubscription.current_period_end);
-              setNextBillingDate(
-                billingDate.toLocaleDateString("en-US", {
-                  year: "numeric",
-                  month: "long",
-                  day: "numeric",
-                }),
-              );
-            }
+            // Get accurate billing information from Stripe
+            try {
+              const { data: paymentData, error: paymentError } =
+                await supabase.functions.invoke(
+                  "supabase-functions-get-payment-history",
+                  {
+                    body: { userId: user.id },
+                  },
+                );
 
-            // Now try to get additional Stripe data for billing date if not in database
-            if (
-              !dbSubscription.current_period_end &&
-              dbSubscription.stripe_subscription_id
-            ) {
-              try {
-                const { data: paymentData, error: paymentError } =
-                  await supabase.functions.invoke(
-                    "supabase-functions-get-payment-history",
-                    {
-                      body: { userId: user.id },
-                    },
-                  );
+              console.log("Payment history response:", {
+                paymentData,
+                paymentError,
+              });
 
-                if (
-                  !paymentError &&
-                  paymentData?.subscription?.current_period_end
-                ) {
+              if (!paymentError && paymentData?.subscription) {
+                const stripeSubscription = paymentData.subscription;
+
+                // Get plan pricing mapping
+                const planPricing = {
+                  starter: 10,
+                  business: 29,
+                  enterprise: 99,
+                };
+
+                // Use Stripe subscription data for accurate billing info
+                const actualAmount = stripeSubscription.amount
+                  ? Math.round(stripeSubscription.amount / 100) // Convert from cents
+                  : planPricing[currentPlanId as keyof typeof planPricing] ||
+                    10;
+
+                // Set current plan details (what user is currently on)
+                setPlanDetails({
+                  plan_id: currentPlanId, // Use database plan_id as source of truth
+                  amount:
+                    planPricing[currentPlanId as keyof typeof planPricing] ||
+                    10, // Use static pricing for current plan
+                });
+
+                // Set next billing plan details (what user will be charged for next month)
+                const nextPlanId = scheduledChange || currentPlanId;
+                const nextPlanAmount =
+                  planPricing[nextPlanId as keyof typeof planPricing] || 10;
+                setNextBillingPlan({
+                  plan_id: nextPlanId,
+                  amount: nextPlanAmount,
+                });
+
+                // Set accurate next billing date from Stripe
+                if (stripeSubscription.current_period_end) {
                   const actualNextBilling = new Date(
-                    paymentData.subscription.current_period_end * 1000,
+                    stripeSubscription.current_period_end * 1000,
                   );
                   setNextBillingDate(
                     actualNextBilling.toLocaleDateString("en-US", {
@@ -994,27 +997,99 @@ const Home = () => {
                       day: "numeric",
                     }),
                   );
+                  console.log(
+                    "Set next billing date from Stripe:",
+                    actualNextBilling,
+                  );
+                } else if (dbSubscription.current_period_end) {
+                  // Fallback to database date
+                  const billingDate = new Date(
+                    dbSubscription.current_period_end,
+                  );
+                  setNextBillingDate(
+                    billingDate.toLocaleDateString("en-US", {
+                      year: "numeric",
+                      month: "long",
+                      day: "numeric",
+                    }),
+                  );
+                  console.log(
+                    "Set next billing date from database:",
+                    billingDate,
+                  );
                 }
-              } catch (stripeError) {
+              } else {
                 console.log(
-                  "Could not fetch Stripe billing date:",
-                  stripeError,
+                  "No Stripe subscription data, using fallback pricing",
                 );
+                // Fallback to static pricing if Stripe data unavailable
+                const planPricing = {
+                  starter: 10,
+                  business: 29,
+                  enterprise: 99,
+                };
+
+                const currentAmount =
+                  planPricing[currentPlanId as keyof typeof planPricing] || 10;
+
+                // Set current plan details
+                setPlanDetails({
+                  plan_id: currentPlanId,
+                  amount: currentAmount,
+                });
+
+                // Set next billing plan details
+                const nextPlanId = scheduledChange || currentPlanId;
+                const nextPlanAmount =
+                  planPricing[nextPlanId as keyof typeof planPricing] || 10;
+                setNextBillingPlan({
+                  plan_id: nextPlanId,
+                  amount: nextPlanAmount,
+                });
+
+                // Use database billing date if available
+                if (dbSubscription.current_period_end) {
+                  const billingDate = new Date(
+                    dbSubscription.current_period_end,
+                  );
+                  setNextBillingDate(
+                    billingDate.toLocaleDateString("en-US", {
+                      year: "numeric",
+                      month: "long",
+                      day: "numeric",
+                    }),
+                  );
+                }
               }
+            } catch (stripeError) {
+              console.error("Error fetching Stripe billing data:", stripeError);
+              // Fallback to static pricing
+              const planPricing = {
+                starter: 10,
+                business: 29,
+                enterprise: 99,
+              };
+
+              const currentAmount =
+                planPricing[currentPlanId as keyof typeof planPricing] || 10;
+
+              // Set current plan details
+              setPlanDetails({
+                plan_id: currentPlanId,
+                amount: currentAmount,
+              });
+
+              // Set next billing plan details
+              const nextPlanId = scheduledChange || currentPlanId;
+              const nextPlanAmount =
+                planPricing[nextPlanId as keyof typeof planPricing] || 10;
+              setNextBillingPlan({
+                plan_id: nextPlanId,
+                amount: nextPlanAmount,
+              });
             }
-          } else if (dbError) {
-            console.error("Error fetching database subscription:", dbError);
-            // Set default values on error
-            setSubscriptionData({
-              plan_id: "starter",
-              status: "inactive",
-            });
-            setPlanDetails({
-              plan_id: "starter",
-              amount: 10,
-            });
           } else {
-            console.log("No database subscription found, setting defaults");
+            console.log("No active subscription found, setting defaults");
             // Set default values if no subscription found
             setSubscriptionData({
               plan_id: "starter",
@@ -1024,15 +1099,23 @@ const Home = () => {
               plan_id: "starter",
               amount: 10,
             });
+            setNextBillingPlan({
+              plan_id: "starter",
+              amount: 10,
+            });
           }
         } catch (error) {
-          console.error("Error fetching database subscription:", error);
+          console.error("Error fetching subscription data:", error);
           // Set default values on error
           setSubscriptionData({
             plan_id: "starter",
             status: "inactive",
           });
           setPlanDetails({
+            plan_id: "starter",
+            amount: 10,
+          });
+          setNextBillingPlan({
             plan_id: "starter",
             amount: 10,
           });
@@ -1401,7 +1484,7 @@ const Home = () => {
                 </div>
 
                 {/* Next Billing Cycle Card */}
-                {subscriptionData && nextBillingDate && (
+                {subscriptionData && nextBillingDate && nextBillingPlan && (
                   <div className="mb-8">
                     <Card className="bg-gradient-to-br from-blue-50 to-purple-50 border-blue-200">
                       <CardHeader>
@@ -1422,19 +1505,43 @@ const Home = () => {
                           </div>
                           <div className="text-center">
                             <p className="text-sm text-gray-600 mb-1">
-                              Current Plan
+                              {scheduledPlanChange
+                                ? "Next Month's Plan"
+                                : "Plan"}
                             </p>
                             <p className="text-lg font-semibold text-gray-900 capitalize">
-                              {subscriptionData.plan_id} Plan
+                              {nextBillingPlan.plan_id} Plan
+                              {scheduledPlanChange &&
+                                scheduledPlanChange !==
+                                  subscriptionData.plan_id && (
+                                  <span className="text-xs text-green-600 ml-2">
+                                    (Upgrading)
+                                  </span>
+                                )}
                             </p>
                           </div>
                           <div className="text-center">
-                            <p className="text-sm text-gray-600 mb-1">Amount</p>
+                            <p className="text-sm text-gray-600 mb-1">
+                              {scheduledPlanChange
+                                ? "Next Month's Amount"
+                                : "Amount"}
+                            </p>
                             <p className="text-lg font-semibold text-gray-900">
-                              ${planDetails?.amount || 0}/month
+                              ${nextBillingPlan.amount}/month
                             </p>
                           </div>
                         </div>
+                        {scheduledPlanChange &&
+                          scheduledPlanChange !== subscriptionData.plan_id && (
+                            <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                              <p className="text-sm text-green-700 text-center">
+                                📅 Plan change scheduled: You'll switch from{" "}
+                                <strong>{subscriptionData.plan_id}</strong> to{" "}
+                                <strong>{scheduledPlanChange}</strong> on{" "}
+                                {nextBillingDate}
+                              </p>
+                            </div>
+                          )}
                       </CardContent>
                     </Card>
                   </div>

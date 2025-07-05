@@ -768,18 +768,19 @@ export default function TwilioNumberManager() {
                     {formatPhoneNumber(number.phone_number)}
                   </div>
                   <div className="text-sm text-gray-500 flex items-center gap-4 mt-1">
-                    <span className="flex items-center gap-1">
-                      <Clock className="h-3 w-3" />
-                      {(number.minutes_used || 0).toFixed(2)} /{" "}
-                      {number.minutes_allocated} minutes used
-                    </span>
                     <Badge
                       variant={
-                        number.status === "active" ? "default" : "secondary"
+                        number.status === "active"
+                          ? "default"
+                          : number.status === "released_overdue_payment"
+                            ? "destructive"
+                            : "secondary"
                       }
                       className="text-xs"
                     >
-                      {number.status}
+                      {number.status === "released_overdue_payment"
+                        ? "Released (Overdue Payment)"
+                        : number.status}
                     </Badge>
                     <Badge variant="outline" className="text-xs">
                       {number.plan_id} plan
@@ -787,26 +788,34 @@ export default function TwilioNumberManager() {
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleManageFlows(number.id)}
-                  >
-                    Manage Flows
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleNumberSettings(number.id)}
-                    className={`${
-                      hasUsedRelease
-                        ? "text-gray-400 cursor-not-allowed"
-                        : "text-red-600 hover:text-red-700 hover:bg-red-50"
-                    }`}
-                    disabled={hasUsedRelease}
-                  >
-                    {hasUsedRelease ? "Release Used" : "Release Number"}
-                  </Button>
+                  {number.status === "released_overdue_payment" ? (
+                    <div className="text-sm text-red-600 font-medium px-3 py-2 bg-red-50 rounded-lg">
+                      Released due to overdue payment
+                    </div>
+                  ) : (
+                    <>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleManageFlows(number.id)}
+                      >
+                        Manage Flows
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleNumberSettings(number.id)}
+                        className={`${
+                          hasUsedRelease
+                            ? "text-gray-400 cursor-not-allowed"
+                            : "text-red-600 hover:text-red-700 hover:bg-red-50"
+                        }`}
+                        disabled={hasUsedRelease}
+                      >
+                        {hasUsedRelease ? "Release Used" : "Release Number"}
+                      </Button>
+                    </>
+                  )}
                 </div>
               </div>
             ))}

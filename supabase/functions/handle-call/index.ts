@@ -117,8 +117,22 @@ Deno.serve(async (req) => {
         console.log(
           `[handle-call] Minute limit exceeded for user ${twilioNumber.user_id}: ${totalMinutesUsed}/${minuteLimit} minutes`,
         );
+
+        // Disable the number to prevent further calls and charges
+        await supabase
+          .from("twilio_numbers")
+          .update({
+            status: "suspended_limit_reached",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", twilioNumber.id);
+
+        console.log(
+          `[handle-call] Number ${twilioNumber.phone_number} suspended due to limit reached`,
+        );
+
         return generateErrorTwiML(
-          "Your monthly minute limit has been reached. Please upgrade your plan to continue receiving calls.",
+          "Your monthly minute limit has been reached. This number has been temporarily suspended to prevent additional charges. Please upgrade your plan to reactivate your number.",
         );
       }
 

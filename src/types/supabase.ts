@@ -527,7 +527,9 @@ export type Database = {
           last_updated_by: string | null
           last_verification_attempt: string | null
           payment_verified_at: string | null
+          plan_change_date: string | null
           plan_id: string
+          scheduled_plan_change: string | null
           security_fingerprint: string | null
           status: string | null
           stripe_checkout_session_id: string | null
@@ -549,7 +551,9 @@ export type Database = {
           last_updated_by?: string | null
           last_verification_attempt?: string | null
           payment_verified_at?: string | null
+          plan_change_date?: string | null
           plan_id: string
+          scheduled_plan_change?: string | null
           security_fingerprint?: string | null
           status?: string | null
           stripe_checkout_session_id?: string | null
@@ -571,7 +575,9 @@ export type Database = {
           last_updated_by?: string | null
           last_verification_attempt?: string | null
           payment_verified_at?: string | null
+          plan_change_date?: string | null
           plan_id?: string
+          scheduled_plan_change?: string | null
           security_fingerprint?: string | null
           status?: string | null
           stripe_checkout_session_id?: string | null
@@ -700,6 +706,14 @@ export type Database = {
           p_lockout_duration_minutes?: number
         }
         Returns: Json
+      }
+      check_overdue_payments: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          user_id: string
+          phone_numbers_count: number
+          days_overdue: number
+        }[]
       }
       cleanup_expired_sessions: {
         Args: Record<PropertyKey, never>
