@@ -21,7 +21,11 @@ const BLOCK_TYPES = [
     label: "Say Text",
     description: "Speak a message to the caller",
     color: "bg-blue-500",
-    config: { text: "Hello! Welcome to our service.", speed: 1.0 },
+    config: {
+      text: "Hello! Welcome to our service.",
+      speed: 1.0,
+      voice: "alice",
+    },
   },
   {
     type: "gather",

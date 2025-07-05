@@ -87,7 +87,8 @@ Deno.serve(async (req) => {
     // Update minutes used if call is completed
     if (callStatus === "completed" && callDuration) {
       const durationSeconds = parseInt(callDuration);
-      const durationMinutes = Math.ceil(durationSeconds / 60);
+      // Convert seconds to fractional minutes for accurate billing
+      const durationMinutes = durationSeconds / 60;
 
       // Get current subscription to check limits
       const { data: subscription } = await supabase
@@ -108,7 +109,7 @@ Deno.serve(async (req) => {
       const currentMinutesUsed = twilioNumber.minutes_used || 0;
       const newMinutesUsed = currentMinutesUsed + durationMinutes;
 
-      // Update minutes used
+      // Update minutes used (store as fractional minutes)
       const { error: updateError } = await supabase
         .from("twilio_numbers")
         .update({
@@ -124,7 +125,7 @@ Deno.serve(async (req) => {
         );
       } else {
         console.log(
-          `[handle-call-status] Updated minutes for ${twilioNumber.phone_number}: +${durationMinutes} minutes (${newMinutesUsed}/${minuteLimit === -1 ? "∞" : minuteLimit})`,
+          `[handle-call-status] Updated minutes for ${twilioNumber.phone_number}: +${durationMinutes.toFixed(2)} minutes (${newMinutesUsed.toFixed(2)}/${minuteLimit === -1 ? "∞" : minuteLimit}) - ${durationSeconds} seconds`,
         );
 
         // Check if user is approaching or has exceeded their limit
@@ -147,16 +148,37 @@ Deno.serve(async (req) => {
         }
       }
 
-      // Log call details for analytics (you can create a call_logs table for this)
+      // Log call details for analytics with accurate duration tracking
       console.log(`[handle-call-status] Call completed:`, {
         callSid,
         from,
         to,
-        duration: `${Math.floor(durationSeconds / 60)}:${(durationSeconds % 60).toString().padStart(2, "0")}`,
-        minutes: durationMinutes,
+        durationSeconds: durationSeconds,
+        durationFormatted: `${Math.floor(durationSeconds / 60)}:${(durationSeconds % 60).toString().padStart(2, "0")}`,
+        minutesUsed: durationMinutes.toFixed(2),
         userId: twilioNumber.user_id,
         phoneNumber: twilioNumber.phone_number,
       });
+
+      // Store call log in database for detailed tracking
+      try {
+        await supabase.from("call_logs").insert({
+          call_sid: callSid,
+          from_number: from || "",
+          to_number: to || "",
+          direction: direction || "unknown",
+          call_status: callStatus,
+          call_duration: durationSeconds,
+          call_minutes: durationMinutes,
+          started_at: new Date().toISOString(),
+          ended_at: new Date().toISOString(),
+          user_id: twilioNumber.user_id,
+          twilio_number_id: twilioNumber.id,
+        });
+        console.log(`[handle-call-status] Call log stored successfully`);
+      } catch (logError) {
+        console.error(`[handle-call-status] Error storing call log:`, logError);
+      }
     }
 
     return new Response("OK", {

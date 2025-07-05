@@ -16,6 +16,7 @@ Deno.serve(async (req) => {
   }
   const url = new URL(req.url);
   const blockId = url.searchParams.get("blockId");
+  const retryCount = parseInt(url.searchParams.get("retry") || "0");
   // Parse parameters ONCE here
   let callSid, from, to, digits;
   if (req.method === "POST") {
@@ -37,14 +38,11 @@ Deno.serve(async (req) => {
     to,
     digits,
     blockId,
+    retryCount,
   });
   try {
-    if (!digits) {
-      console.log("[handle-gather] No digits received");
-      return generateErrorTwiML("No input received. Please try again.");
-    }
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const supabaseServiceKey = Deno.env.get("SERVICE_KEY");
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_KEY");
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
     // Find the Twilio number and associated call flow
     const { data: twilioNumber, error: numberError } = await supabase
@@ -99,6 +97,45 @@ Deno.serve(async (req) => {
       );
       return generateErrorTwiML("Gather block not found.");
     }
+    const maxRetries = gatherBlock.config.maxRetries || 3;
+    const retryMessage =
+      gatherBlock.config.retryMessage ||
+      "Sorry, I didn't understand. Please try again.";
+    const goodbyeMessage =
+      gatherBlock.config.goodbyeMessage || "Thank you for calling. Goodbye!";
+    const voice = gatherBlock.config.voice || "alice";
+    // Handle no input or invalid input with retry logic
+    if (!digits) {
+      console.log(
+        `[handle-gather] No digits received, retry ${retryCount + 1}/${maxRetries}`,
+      );
+
+      if (retryCount < maxRetries - 1) {
+        // Retry - say retry message then resay the prompt
+        const origin = new URL(req.url).origin;
+        const retryUrl = `${origin}/functions/v1/supabase-functions-handle-gather?blockId=${blockId}&retry=${retryCount + 1}`;
+
+        let twiml = `<?xml version="1.0" encoding="UTF-8"?>\n<Response>\n`;
+        twiml += `  <Say voice="${voice}">${escapeXml(retryMessage)}</Say>\n`;
+        twiml += `  <Gather input="dtmf" timeout="10" numDigits="1" action="${retryUrl}">\n`;
+        twiml += `    <Say voice="${voice}">${escapeXml(gatherBlock.config.prompt)}</Say>\n`;
+        twiml += `  </Gather>\n`;
+        // Add fallback for no input after retry
+        twiml += `  <Redirect>${retryUrl}</Redirect>\n`;
+        twiml += `</Response>`;
+
+        return new Response(twiml, {
+          headers: {
+            ...corsHeaders,
+            "Content-Type": "text/xml",
+          },
+        });
+      } else {
+        // Max retries reached
+        console.log(`[handle-gather] Max retries reached, saying goodbye`);
+        return generateGoodbyeTwiML(goodbyeMessage, voice);
+      }
+    }
     // Find the matching option
     const selectedOption = gatherBlock.config.options?.find(
       (option) => option.digit === digits.toString(),
@@ -112,10 +149,7 @@ Deno.serve(async (req) => {
       "[handle-gather] Selected option:",
       JSON.stringify(selectedOption, null, 2),
     );
-    let twiml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-`;
-    const voice = "alice";
+    let twiml = `<?xml version="1.0" encoding="UTF-8"?>\n<Response>\n`;
     if (selectedOption) {
       console.log("[handle-gather] Processing selected option:", {
         digit: selectedOption.digit,
@@ -167,35 +201,60 @@ Deno.serve(async (req) => {
         twiml += `  <Hangup/>\n`;
       }
     } else {
-      // No matching option, provide default response
+      // Invalid option selected, retry if possible
       console.log(
-        "[handle-gather] No matching option found for digit:",
-        digits,
+        `[handle-gather] Invalid option ${digits}, retry ${retryCount + 1}/${maxRetries}`,
       );
-      console.log(
-        "[handle-gather] All available options:",
-        gatherBlock.config.options?.map((opt) => ({
-          digit: opt.digit,
-          text: opt.text,
-          blockId: opt.blockId,
-        })),
-      );
-      twiml += `  <Say voice="${voice}">Invalid selection. You pressed ${digits}. The available options are: `;
-      // List available options
-      if (gatherBlock.config.options && gatherBlock.config.options.length > 0) {
-        const optionsList = gatherBlock.config.options
-          .filter((opt) => opt.digit && opt.digit.trim() !== "")
-          .map(
-            (opt) =>
-              `Press ${opt.digit} for ${opt.text || "option " + opt.digit}`,
-          )
-          .join(", ");
-        if (optionsList) {
-          twiml += `${escapeXml(optionsList)}. `;
+
+      if (retryCount < maxRetries - 1) {
+        // Retry with invalid option message
+        const origin = new URL(req.url).origin;
+        const retryUrl = `${origin}/functions/v1/supabase-functions-handle-gather?blockId=${blockId}&retry=${retryCount + 1}`;
+
+        twiml += `  <Say voice="${voice}">Invalid selection. You pressed ${digits}. `;
+        // List available options
+        if (
+          gatherBlock.config.options &&
+          gatherBlock.config.options.length > 0
+        ) {
+          const optionsList = gatherBlock.config.options
+            .filter((opt) => opt.digit && opt.digit.trim() !== "")
+            .map(
+              (opt) =>
+                `Press ${opt.digit} for ${opt.text || "option " + opt.digit}`,
+            )
+            .join(", ");
+          if (optionsList) {
+            twiml += `${escapeXml(optionsList)}. `;
+          }
         }
+        twiml += `${escapeXml(retryMessage)}</Say>\n`;
+        twiml += `  <Gather input="dtmf" timeout="10" numDigits="1" action="${retryUrl}">\n`;
+        twiml += `    <Say voice="${voice}">${escapeXml(gatherBlock.config.prompt)}</Say>\n`;
+        twiml += `  </Gather>\n`;
+        // Add fallback for no input after retry
+        twiml += `  <Redirect>${retryUrl}</Redirect>\n`;
+      } else {
+        // Max retries reached
+        twiml += `  <Say voice="${voice}">Invalid selection. You pressed ${digits}. `;
+        if (
+          gatherBlock.config.options &&
+          gatherBlock.config.options.length > 0
+        ) {
+          const optionsList = gatherBlock.config.options
+            .filter((opt) => opt.digit && opt.digit.trim() !== "")
+            .map(
+              (opt) =>
+                `Press ${opt.digit} for ${opt.text || "option " + opt.digit}`,
+            )
+            .join(", ");
+          if (optionsList) {
+            twiml += `The available options were: ${escapeXml(optionsList)}. `;
+          }
+        }
+        twiml += `${escapeXml(goodbyeMessage)}</Say>\n`;
+        twiml += `  <Hangup/>\n`;
       }
-      twiml += `Please call back and try again.</Say>\n`;
-      twiml += `  <Hangup/>\n`;
     }
     twiml += `</Response>`;
     console.log("[handle-gather] Generated TwiML:", twiml);
@@ -216,6 +275,20 @@ function generateErrorTwiML(message) {
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="alice">${escapeXml(message)}</Say>
+  <Hangup/>
+</Response>`;
+  return new Response(twiml, {
+    status: 200,
+    headers: {
+      ...corsHeaders,
+      "Content-Type": "text/xml",
+    },
+  });
+}
+function generateGoodbyeTwiML(message, voice = "alice") {
+  const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="${voice}">${escapeXml(message)}</Say>
   <Hangup/>
 </Response>`;
   return new Response(twiml, {
@@ -248,7 +321,8 @@ function generateBlockTwiML(block, allBlocks, voice) {
         if (currentBlock.config.text) {
           const speed = currentBlock.config.speed || 1.0;
           const rate = Math.max(0.5, Math.min(2.0, speed)); // Clamp between 0.5 and 2.0
-          blockTwiml += `  <Say voice="${voice}" rate="${rate}">${escapeXml(currentBlock.config.text)}</Say>\n`;
+          const blockVoice = currentBlock.config.voice || voice;
+          blockTwiml += `  <Say voice="${blockVoice}" rate="${rate}">${escapeXml(currentBlock.config.text)}</Say>\n`;
         }
         break;
       case "pause":
@@ -261,11 +335,70 @@ function generateBlockTwiML(block, allBlocks, voice) {
           blockTwiml += `  <Dial timeout="${timeout}">${escapeXml(currentBlock.config.number)}</Dial>\n`;
         }
         break;
+      case "multi_forward":
+        if (
+          currentBlock.config.numbers &&
+          currentBlock.config.numbers.length > 0
+        ) {
+          const timeout = currentBlock.config.ringTimeout || 20;
+          const strategy =
+            currentBlock.config.forwardStrategy || "simultaneous";
+
+          if (strategy === "simultaneous") {
+            blockTwiml += `  <Dial timeout="${timeout}">\n`;
+            currentBlock.config.numbers.forEach((number) => {
+              if (number.trim()) {
+                blockTwiml += `    <Number>${escapeXml(number)}</Number>\n`;
+              }
+            });
+            blockTwiml += `  </Dial>\n`;
+          } else {
+            // Sequential or priority - dial one at a time
+            const validNumbers = currentBlock.config.numbers.filter((n) =>
+              n.trim(),
+            );
+            validNumbers.forEach((number, index) => {
+              blockTwiml += `  <Dial timeout="${timeout}">${escapeXml(number)}</Dial>\n`;
+              if (index < validNumbers.length - 1) {
+                blockTwiml += `  <Pause length="1"/>\n`;
+              }
+            });
+          }
+        }
+        break;
+      case "hold":
+        const holdMessage =
+          currentBlock.config.message || "Please hold while we connect you.";
+        const musicType = currentBlock.config.musicType || "preset";
+        const holdMusicLoop = currentBlock.config.holdMusicLoop || 10;
+        const blockVoice = currentBlock.config.voice || voice;
+
+        blockTwiml += `  <Say voice="${blockVoice}">${escapeXml(holdMessage)}</Say>\n`;
+
+        if (musicType === "preset") {
+          const presetMusic = currentBlock.config.presetMusic || "classical";
+          const musicUrls = {
+            classical:
+              "https://www.soundjay.com/misc/sounds/classical-music.mp3",
+            jazz: "https://www.soundjay.com/misc/sounds/jazz-music.mp3",
+            ambient: "https://www.soundjay.com/misc/sounds/ambient-music.mp3",
+            corporate:
+              "https://www.soundjay.com/misc/sounds/corporate-music.mp3",
+            nature: "https://www.soundjay.com/misc/sounds/nature-sounds.mp3",
+            piano: "https://www.soundjay.com/misc/sounds/piano-music.mp3",
+          };
+          const musicUrl = musicUrls[presetMusic] || musicUrls.classical;
+          blockTwiml += `  <Play loop="${holdMusicLoop}">${musicUrl}</Play>\n`;
+        } else if (musicType === "custom" && currentBlock.config.musicUrl) {
+          blockTwiml += `  <Play loop="${holdMusicLoop}">${escapeXml(currentBlock.config.musicUrl)}</Play>\n`;
+        }
+        break;
       case "record":
         const maxLength = currentBlock.config.maxLength || 300;
         const finishOnKey = currentBlock.config.finishOnKey || "#";
         if (currentBlock.config.prompt) {
-          blockTwiml += `  <Say voice="${voice}">${escapeXml(currentBlock.config.prompt)}</Say>\n`;
+          const blockVoice = currentBlock.config.voice || voice;
+          blockTwiml += `  <Say voice="${blockVoice}">${escapeXml(currentBlock.config.prompt)}</Say>\n`;
         }
         blockTwiml += `  <Record maxLength="${maxLength}" finishOnKey="${finishOnKey}" transcribe="true"/>\n`;
         break;

@@ -151,6 +151,54 @@ export default function BlockProperties({
               />
             </div>
             <div className="space-y-2">
+              <Label className="text-sm">Voice Selection</Label>
+              <Select
+                value={block.config.voice || "alice"}
+                onValueChange={(value) => updateConfig({ voice: value })}
+              >
+                <SelectTrigger className="text-sm">
+                  <SelectValue placeholder="Select voice" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="alice">
+                    👩 Alice (Female, US English)
+                  </SelectItem>
+                  <SelectItem value="man">👨 Man (Male, US English)</SelectItem>
+                  <SelectItem value="woman">
+                    👩 Woman (Female, US English)
+                  </SelectItem>
+                  <SelectItem value="Polly.Joanna">
+                    🎭 Joanna (Neural, Female)
+                  </SelectItem>
+                  <SelectItem value="Polly.Matthew">
+                    🎭 Matthew (Neural, Male)
+                  </SelectItem>
+                  <SelectItem value="Polly.Amy">
+                    🎭 Amy (Neural, British Female)
+                  </SelectItem>
+                  <SelectItem value="Polly.Brian">
+                    🎭 Brian (Neural, British Male)
+                  </SelectItem>
+                  <SelectItem value="Polly.Emma">
+                    🎭 Emma (Neural, British Female)
+                  </SelectItem>
+                  <SelectItem value="Polly.Olivia">
+                    🎭 Olivia (Neural, Australian Female)
+                  </SelectItem>
+                  <SelectItem value="Polly.Aria">
+                    🎭 Aria (Neural, New Zealand Female)
+                  </SelectItem>
+                  <SelectItem value="Polly.Ayanda">
+                    🎭 Ayanda (Neural, South African Female)
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <div className="text-xs text-gray-500">
+                Neural voices (Polly.*) provide more natural speech but may have
+                additional costs
+              </div>
+            </div>
+            <div className="space-y-2">
               <Label className="text-sm">Speech Speed</Label>
               <div className="flex items-center gap-2">
                 <Input
@@ -178,6 +226,29 @@ export default function BlockProperties({
               <div className="text-xs text-gray-500">
                 0.5 = x-slow • 0.8 = slow • 1.0 = medium • 1.5 = fast • 1.6 =
                 x-fast
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm">Voice Preview</Label>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  if ("speechSynthesis" in window && block.config.text) {
+                    const utterance = new SpeechSynthesisUtterance(
+                      block.config.text.substring(0, 100),
+                    );
+                    utterance.rate = block.config.speed || 1.0;
+                    speechSynthesis.speak(utterance);
+                  }
+                }}
+                className="w-full h-8 text-sm"
+                disabled={!block.config.text}
+              >
+                🔊 Preview Voice
+              </Button>
+              <div className="text-xs text-gray-500">
+                Browser preview (actual Twilio voice may differ)
               </div>
             </div>
           </div>
@@ -215,25 +286,31 @@ export default function BlockProperties({
               </div>
               <div>
                 <Label className="text-xs text-gray-600">Retry Message</Label>
-                <Input
+                <Textarea
                   value={block.config.retryMessage || ""}
                   onChange={(e) =>
                     updateConfig({ retryMessage: e.target.value })
                   }
                   placeholder="Sorry, I didn't understand. Please try again."
-                  className="h-8 text-sm"
+                  className="text-sm"
+                  rows={2}
                 />
               </div>
               <div>
                 <Label className="text-xs text-gray-600">Goodbye Message</Label>
-                <Input
+                <Textarea
                   value={block.config.goodbyeMessage || ""}
                   onChange={(e) =>
                     updateConfig({ goodbyeMessage: e.target.value })
                   }
                   placeholder="Thank you for calling. Goodbye!"
-                  className="h-8 text-sm"
+                  className="text-sm"
+                  rows={2}
                 />
+              </div>
+              <div className="text-xs text-gray-500 p-2 bg-blue-50 rounded border">
+                💡 The system will retry up to {block.config.maxRetries || 3}{" "}
+                times before playing the goodbye message and hanging up.
               </div>
             </div>
 

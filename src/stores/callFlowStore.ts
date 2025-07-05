@@ -19,6 +19,7 @@ export interface FlowBlock {
   config: {
     text?: string;
     speed?: number;
+    voice?: string; // Twilio neural voice selection
     prompt?: string;
     maxRetries?: number;
     retryMessage?: string;
