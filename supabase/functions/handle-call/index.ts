@@ -29,7 +29,7 @@ Deno.serve(async (req) => {
       direction,
     });
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_KEY");
+    const supabaseServiceKey = Deno.env.get("SERVICE_KEY");
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
     // Find the Twilio number and associated call flow
     const { data: twilioNumber, error: numberError } = await supabase
@@ -104,7 +104,7 @@ Deno.serve(async (req) => {
         from,
         to,
         callSid,
-        webhookUrl: `${req.url.split("/handle-call")[0]}/supabase-functions-handle-call-status`,
+        webhookUrl: `${req.url.split("/handle-call")[0]}/handle-call-status`,
       });
     } else {
       // Default greeting with webhook for call tracking
@@ -163,7 +163,7 @@ function generateTwiMLFromFlow(flowConfig, context) {
       config.blocks.length > 0
     ) {
       // New block-based format
-      twiml += generateBlockBasedTwiML(config.blocks, statusCallback);
+      twiml += generateBlockBasedTwiML(config.blocks, "alice", statusCallback);
     } else {
       // Legacy format or fallback
       console.log(`[generateTwiMLFromFlow] Using legacy format or fallback`);
@@ -180,7 +180,7 @@ function generateTwiMLFromFlow(flowConfig, context) {
     return `<?xml version="1.0" encoding="UTF-8"?>\n<Response>\n  <Say voice="alice">Configuration error. Please contact support.</Say>\n  <Hangup/>\n</Response>`;
   }
 }
-function generateBlockBasedTwiML(blocks, statusCallback) {
+function generateBlockBasedTwiML(blocks, _voice, statusCallback) {
   let twiml = "";
   const processedBlocks = new Set();
   console.log(`[generateBlockBasedTwiML] Processing ${blocks.length} blocks`);
@@ -214,8 +214,7 @@ function generateBlockBasedTwiML(blocks, statusCallback) {
         if (block.config.text) {
           const speed = block.config.speed || 1.0;
           const rate = Math.max(0.5, Math.min(2.0, speed)); // Clamp between 0.5 and 2.0
-          const voice = block.config.voice || "alice";
-          blockTwiml += `  <Say voice="${voice}" rate="${rate}">${escapeXml(block.config.text)}</Say>\n`;
+          blockTwiml += `  <Say voice="alice" rate="${rate}">${escapeXml(block.config.text)}</Say>\n`;
         }
         break;
       case "pause":
@@ -228,14 +227,10 @@ function generateBlockBasedTwiML(blocks, statusCallback) {
           const origin = new URL(statusCallback).origin;
           const gatherUrl = `${origin}/functions/v1/supabase-functions-handle-gather?blockId=${block.id}`;
           blockTwiml += `  <Gather input="dtmf" timeout="10" numDigits="1" action="${gatherUrl}">\n`;
-          const voice = block.config.voice || "alice";
-          blockTwiml += `    <Say voice="${voice}">${escapeXml(block.config.prompt)}</Say>\n`;
+          blockTwiml += `    <Say voice="alice">${escapeXml(block.config.prompt)}</Say>\n`;
           blockTwiml += `  </Gather>\n`;
-          // Add retry logic instead of immediate hangup
-          const retryMessage =
-            block.config.retryMessage ||
-            "Sorry, I didn't receive any input. Please try calling again.";
-          blockTwiml += `  <Say voice="${voice}">${escapeXml(retryMessage)}</Say>\n`;
+          // Add default action if no input - say invalid and hangup
+          blockTwiml += `  <Say voice="alice">Sorry, I didn't receive any input. Please try calling again.</Say>\n`;
           blockTwiml += `  <Hangup/>\n`;
           return blockTwiml; // Don't process connections here as gather handles routing
         }
@@ -259,64 +254,11 @@ function generateBlockBasedTwiML(blocks, statusCallback) {
           }
         }
         break;
-      case "multi_forward":
-        if (block.config.numbers && block.config.numbers.length > 0) {
-          const timeout = block.config.ringTimeout || 20;
-          const strategy = block.config.forwardStrategy || "simultaneous";
-
-          if (strategy === "simultaneous") {
-            blockTwiml += `  <Dial timeout="${timeout}" statusCallback="${statusCallback}">\n`;
-            block.config.numbers.forEach((number) => {
-              if (number.trim()) {
-                blockTwiml += `    <Number>${escapeXml(number)}</Number>\n`;
-              }
-            });
-            blockTwiml += `  </Dial>\n`;
-          } else {
-            // Sequential or priority - dial one at a time
-            const validNumbers = block.config.numbers.filter((n) => n.trim());
-            validNumbers.forEach((number, index) => {
-              blockTwiml += `  <Dial timeout="${timeout}" statusCallback="${statusCallback}">${escapeXml(number)}</Dial>\n`;
-              if (index < validNumbers.length - 1) {
-                blockTwiml += `  <Pause length="1"/>\n`;
-              }
-            });
-          }
-        }
-        break;
-      case "hold":
-        const holdMessage =
-          block.config.message || "Please hold while we connect you.";
-        const musicType = block.config.musicType || "preset";
-        const holdMusicLoop = block.config.holdMusicLoop || 10;
-        const voice = block.config.voice || "alice";
-
-        blockTwiml += `  <Say voice="${voice}">${escapeXml(holdMessage)}</Say>\n`;
-
-        if (musicType === "preset") {
-          const presetMusic = block.config.presetMusic || "classical";
-          const musicUrls = {
-            classical:
-              "https://www.soundjay.com/misc/sounds/classical-music.mp3",
-            jazz: "https://www.soundjay.com/misc/sounds/jazz-music.mp3",
-            ambient: "https://www.soundjay.com/misc/sounds/ambient-music.mp3",
-            corporate:
-              "https://www.soundjay.com/misc/sounds/corporate-music.mp3",
-            nature: "https://www.soundjay.com/misc/sounds/nature-sounds.mp3",
-            piano: "https://www.soundjay.com/misc/sounds/piano-music.mp3",
-          };
-          const musicUrl = musicUrls[presetMusic] || musicUrls.classical;
-          blockTwiml += `  <Play loop="${holdMusicLoop}">${musicUrl}</Play>\n`;
-        } else if (musicType === "custom" && block.config.musicUrl) {
-          blockTwiml += `  <Play loop="${holdMusicLoop}">${escapeXml(block.config.musicUrl)}</Play>\n`;
-        }
-        break;
       case "record":
         const maxLength = block.config.maxLength || 300;
         const finishOnKey = block.config.finishOnKey || "#";
         if (block.config.prompt) {
-          const voice = block.config.voice || "alice";
-          blockTwiml += `  <Say voice="${voice}">${escapeXml(block.config.prompt)}</Say>\n`;
+          blockTwiml += `  <Say voice="alice">${escapeXml(block.config.prompt)}</Say>\n`;
         }
         blockTwiml += `  <Record maxLength="${maxLength}" finishOnKey="${finishOnKey}" transcribe="true"/>\n`;
         break;
