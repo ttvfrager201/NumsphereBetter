@@ -782,7 +782,7 @@ Deno.serve(async (req) => {
   }
 });
 
-// Handle subscription creation/updates with enhanced security
+// Handle subscription creation/updates with enhanced security and proration
 async function handleSubscriptionChange(
   subscription: any,
   eventType: string,
@@ -790,6 +790,12 @@ async function handleSubscriptionChange(
 ) {
   const userId = subscription.metadata?.user_id;
   const planId = subscription.metadata?.plan_id;
+  const oldPlanId = subscription.metadata?.old_plan_id;
+  const isUpgrade = subscription.metadata?.is_upgrade === "true";
+  const prorationAmount = subscription.metadata?.proration_amount
+    ? parseInt(subscription.metadata.proration_amount)
+    : 0;
+  const nextBillingCycle = subscription.metadata?.next_billing_cycle === "true";
 
   // Enhanced validation
   if (!userId || !planId) {
@@ -829,6 +835,11 @@ async function handleSubscriptionChange(
   try {
     console.log(
       `[${eventType}] [${requestId}] Processing subscription change for user ${userId}, plan ${planId}, status ${subscription.status}`,
+      {
+        oldPlanId,
+        isUpgrade,
+        prorationAmount,
+      },
     );
 
     // Start transaction-like operations
@@ -845,34 +856,70 @@ async function handleSubscriptionChange(
 
     updates.push(userUpdate);
 
-    // Update subscription record with comprehensive data
-    const subscriptionUpdate = supabase.from("user_subscriptions").upsert(
-      {
-        user_id: userId,
-        plan_id: planId,
-        stripe_subscription_id: subscription.id,
-        stripe_customer_id: subscription.customer,
-        status: subscription.status,
-        current_period_start: subscription.current_period_start
-          ? new Date(subscription.current_period_start * 1000).toISOString()
-          : null,
-        current_period_end: subscription.current_period_end
-          ? new Date(subscription.current_period_end * 1000).toISOString()
-          : null,
-        cancel_at_period_end: subscription.cancel_at_period_end || false,
-        canceled_at: subscription.canceled_at
-          ? new Date(subscription.canceled_at * 1000).toISOString()
-          : null,
-        trial_end: subscription.trial_end
-          ? new Date(subscription.trial_end * 1000).toISOString()
-          : null,
-        updated_at: timestamp,
-      },
-      {
-        onConflict: "user_id",
-        ignoreDuplicates: false,
-      },
-    );
+    // For plan changes scheduled for next billing cycle, don't update immediately
+    let subscriptionUpdate;
+    if (nextBillingCycle && eventType === "customer.subscription.updated") {
+      // Schedule plan change for next billing cycle - don't update plan_id yet
+      subscriptionUpdate = supabase.from("user_subscriptions").upsert(
+        {
+          user_id: userId,
+          plan_id: oldPlanId || planId, // Keep current plan until next cycle
+          pending_plan_id: planId, // Store pending plan change
+          stripe_subscription_id: subscription.id,
+          stripe_customer_id: subscription.customer,
+          status: subscription.status,
+          current_period_start: subscription.current_period_start
+            ? new Date(subscription.current_period_start * 1000).toISOString()
+            : null,
+          current_period_end: subscription.current_period_end
+            ? new Date(subscription.current_period_end * 1000).toISOString()
+            : null,
+          cancel_at_period_end: subscription.cancel_at_period_end || false,
+          canceled_at: subscription.canceled_at
+            ? new Date(subscription.canceled_at * 1000).toISOString()
+            : null,
+          trial_end: subscription.trial_end
+            ? new Date(subscription.trial_end * 1000).toISOString()
+            : null,
+          proration_amount: prorationAmount,
+          updated_at: timestamp,
+        },
+        {
+          onConflict: "user_id",
+          ignoreDuplicates: false,
+        },
+      );
+    } else {
+      // Regular subscription update or new subscription
+      subscriptionUpdate = supabase.from("user_subscriptions").upsert(
+        {
+          user_id: userId,
+          plan_id: planId,
+          stripe_subscription_id: subscription.id,
+          stripe_customer_id: subscription.customer,
+          status: subscription.status,
+          current_period_start: subscription.current_period_start
+            ? new Date(subscription.current_period_start * 1000).toISOString()
+            : null,
+          current_period_end: subscription.current_period_end
+            ? new Date(subscription.current_period_end * 1000).toISOString()
+            : null,
+          cancel_at_period_end: subscription.cancel_at_period_end || false,
+          canceled_at: subscription.canceled_at
+            ? new Date(subscription.canceled_at * 1000).toISOString()
+            : null,
+          trial_end: subscription.trial_end
+            ? new Date(subscription.trial_end * 1000).toISOString()
+            : null,
+          proration_amount: prorationAmount,
+          updated_at: timestamp,
+        },
+        {
+          onConflict: "user_id",
+          ignoreDuplicates: false,
+        },
+      );
+    }
 
     updates.push(subscriptionUpdate);
 
@@ -907,9 +954,11 @@ async function handleSubscriptionChange(
       {
         status: subscription.status,
         plan_id: planId,
+        old_plan_id: oldPlanId,
         subscription_id: subscription.id,
         customer_id: subscription.customer,
         cancel_at_period_end: subscription.cancel_at_period_end,
+        proration_amount: prorationAmount,
         current_period_end: subscription.current_period_end
           ? new Date(subscription.current_period_end * 1000).toISOString()
           : null,
@@ -922,6 +971,22 @@ async function handleSubscriptionChange(
         userId,
         "subscription_created",
         planId,
+      );
+    } else if (
+      eventType === "customer.subscription.updated" &&
+      oldPlanId &&
+      oldPlanId !== planId
+    ) {
+      await sendSubscriptionNotification(
+        userId,
+        isUpgrade ? "plan_upgraded" : "plan_downgraded",
+        planId,
+        requestId,
+        {
+          oldPlan: oldPlanId,
+          newPlan: planId,
+          prorationAmount: prorationAmount / 100, // Convert cents to dollars
+        },
       );
     } else if (subscription.cancel_at_period_end) {
       await sendSubscriptionNotification(
@@ -1516,6 +1581,7 @@ async function sendSubscriptionNotification(
   eventType: string,
   planId: string,
   requestId: string = crypto.randomUUID(),
+  extraData: any = {},
 ) {
   try {
     console.log(
@@ -1539,7 +1605,7 @@ async function sendSubscriptionNotification(
     const planDetails = {
       starter: {
         name: "Starter",
-        price: "$9",
+        price: "$10",
         features: "1 Virtual Phone Number, 500 Minutes/Month",
       },
       business: {
@@ -1653,6 +1719,56 @@ async function sendEmail(
             <div class="footer">
               <p>Need help? Contact us at support@numsphere.com</p>
               <p>NumSphere - Your Virtual Phone Solution</p>
+            </div>
+          </div>
+        `;
+        break;
+
+      case "plan_upgraded":
+      case "plan_downgraded":
+        const isUpgrade = eventType === "plan_upgraded";
+        const oldPlanName = extraData.oldPlan
+          ? extraData.oldPlan.charAt(0).toUpperCase() +
+            extraData.oldPlan.slice(1)
+          : "Previous";
+        const prorationText =
+          extraData.prorationAmount > 0
+            ? `You were charged ${extraData.prorationAmount.toFixed(2)} for the prorated difference.`
+            : extraData.prorationAmount < 0
+              ? `You received a credit of ${Math.abs(extraData.prorationAmount).toFixed(2)} for the unused portion.`
+              : "No additional charges were applied.";
+
+        subject = `📈 Plan ${isUpgrade ? "Upgraded" : "Changed"} - Welcome to ${plan.name}!`;
+        htmlContent = `
+          ${baseStyle}
+          <div class="container">
+            <div class="header" style="background: linear-gradient(135deg, ${isUpgrade ? "#10b981 0%, #059669 100%" : "#3b82f6 0%, #1d4ed8 100%"});">
+              <h1>📈 Plan ${isUpgrade ? "Upgraded" : "Changed"}!</h1>
+              <p>Your plan has been successfully updated</p>
+            </div>
+            <div class="content">
+              <h2>Plan Change Successful</h2>
+              <p>Hi ${name},</p>
+              <p>Your plan has been successfully changed from ${oldPlanName} to ${plan.name}.</p>
+              
+              <div class="plan-details">
+                <h3>📋 New Plan Details</h3>
+                <p><strong>Plan:</strong> ${plan.name}</p>
+                <p><strong>Price:</strong> ${plan.price}/month</p>
+                <p><strong>Features:</strong> ${plan.features}</p>
+                <br>
+                <h4>💰 Billing Information</h4>
+                <p>${prorationText}</p>
+              </div>
+              
+              <p>Your new plan features are now active and ready to use!</p>
+              
+              <a href="https://mystifying-torvalds4-r9r87.view-3.tempo-dev.app/dashboard" class="button">
+                Access Dashboard
+              </a>
+            </div>
+            <div class="footer">
+              <p>Questions about your plan change? Contact support@numsphere.com</p>
             </div>
           </div>
         `;

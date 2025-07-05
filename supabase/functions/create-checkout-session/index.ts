@@ -11,7 +11,7 @@ const corsHeaders = {
 // Configuration utilities - Use hardcoded URL to avoid database issues
 function getFrontendBaseUrl(): string {
   // Use hardcoded URL to prevent white screen issues
-  const frontendUrl = "https://brave-hermann1-w8aje.view-3.tempo-dev.app";
+  const frontendUrl = "https://intelligent-wozniak4-uvwcf.view-3.tempo-dev.app";
   console.log("Using hardcoded frontend URL:", frontendUrl);
   return frontendUrl;
 }
@@ -69,9 +69,9 @@ Deno.serve(async (req) => {
   }
 
   const planPriceMap: Record<string, string> = {
-    starter: "price_1RcsXnB6b7vINOBHFKemTArF",
-    business: "price_1RdKsrB6b7vINOBHH5zkVavh",
-    enterprise: "price_1RdKtCB6b7vINOBHAJNJibdz",
+    starter: "price_1RcsXnB6b7vINOBHFKemTArF", // $10/month (corrected from $9)
+    business: "price_1RdKsrB6b7vINOBHH5zkVavh", // $29/month
+    enterprise: "price_1RdKtCB6b7vINOBHAJNJibdz", // $99/month
   };
 
   const priceId = planPriceMap[planId as keyof typeof planPriceMap];
@@ -110,9 +110,9 @@ Deno.serve(async (req) => {
     let checkoutSession;
 
     if (isChangingPlan && currentPlan) {
-      // For plan changes, we need to update the existing subscription
+      // For plan changes, schedule for next billing cycle
       console.log(
-        `Creating plan change session from ${currentPlan} to ${planId}`,
+        `Creating plan change session from ${currentPlan} to ${planId} for next billing cycle`,
       );
 
       checkoutSession = await stripe.checkout.sessions.create({
@@ -137,6 +137,7 @@ Deno.serve(async (req) => {
           created_timestamp: timestamp,
           expiry_time: expiryTime.toString(),
           frontend_url: frontendUrl,
+          next_billing_cycle: "true", // Flag for next billing cycle
         },
         subscription_data: {
           metadata: {
@@ -147,6 +148,7 @@ Deno.serve(async (req) => {
             security_token: securityToken,
             session_token: sessionToken,
             created_timestamp: timestamp,
+            next_billing_cycle: "true",
           },
         },
         automatic_tax: { enabled: false },

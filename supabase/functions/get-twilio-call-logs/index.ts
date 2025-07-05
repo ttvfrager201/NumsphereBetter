@@ -235,7 +235,11 @@ Deno.serve(async (req) => {
       console.log("Returning sample data due to missing Twilio credentials");
       return new Response(
         JSON.stringify({
-          calls: sampleCalls,
+          calls: sampleCalls.map((call) => ({
+            ...call,
+            exact_seconds: parseInt(call.duration),
+            billing_minutes: Math.ceil(parseInt(call.duration) / 60),
+          })),
           success: true,
           total: sampleCalls.length,
           demo_mode: true,
@@ -356,7 +360,11 @@ Deno.serve(async (req) => {
 
       return new Response(
         JSON.stringify({
-          calls: sortedCalls,
+          calls: sortedCalls.map((call) => ({
+            ...call,
+            exact_seconds: parseInt(call.duration || "0"),
+            billing_minutes: Math.ceil(parseInt(call.duration || "0") / 60),
+          })),
           success: true,
           total: sortedCalls.length,
           filtered_by: phoneNumber || "user_subscribed_numbers",

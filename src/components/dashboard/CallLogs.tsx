@@ -126,16 +126,16 @@ export default function CallLogs({ phoneNumber }: CallLogsProps = {}) {
           return;
         }
 
-        // Show demo mode notification if applicable
-        if (twilioData.demo_mode) {
-          toast({
-            title: "Demo Mode",
-            description:
-              twilioData.message ||
-              "Showing sample data. Configure Twilio credentials for real call logs.",
-            variant: "default",
-          });
-        }
+        // Remove demo mode notification to hide Twilio references
+        // if (twilioData.demo_mode) {
+        //   toast({
+        //     title: "Demo Mode",
+        //     description:
+        //       twilioData.message ||
+        //       "Showing sample data. Configure credentials for real call logs.",
+        //     variant: "default",
+        //   });
+        // }
 
         // Transform Twilio data to match our interface with exact seconds
         const transformedLogs = (twilioData?.calls || []).map((call: any) => {
@@ -152,8 +152,8 @@ export default function CallLogs({ phoneNumber }: CallLogsProps = {}) {
             to_number: call.to,
             direction: call.direction === "inbound" ? "inbound" : "outbound",
             call_status: call.status,
-            call_duration: exactSeconds,
-            call_minutes: billingMinutes,
+            call_duration: exactSeconds, // Exact seconds for precise billing
+            call_minutes: billingMinutes, // Rounded up minutes for billing
             started_at: call.start_time,
             ended_at: call.end_time,
             recording_url: null, // Twilio recordings would need separate API call
@@ -161,6 +161,16 @@ export default function CallLogs({ phoneNumber }: CallLogsProps = {}) {
             created_at: call.start_time,
           };
         });
+
+        console.log(
+          "Transformed call logs with exact billing:",
+          transformedLogs.map((log) => ({
+            sid: log.call_sid,
+            exactSeconds: log.call_duration,
+            billingMinutes: log.call_minutes,
+            duration: `${Math.floor(log.call_duration / 60)}:${(log.call_duration % 60).toString().padStart(2, "0")}`,
+          })),
+        );
 
         setCallLogs(transformedLogs);
         console.log(
@@ -226,8 +236,8 @@ export default function CallLogs({ phoneNumber }: CallLogsProps = {}) {
             to_number: call.to,
             direction: call.direction === "inbound" ? "inbound" : "outbound",
             call_status: call.status,
-            call_duration: exactSeconds,
-            call_minutes: billingMinutes,
+            call_duration: exactSeconds, // Store exact seconds for accurate usage tracking
+            call_minutes: billingMinutes, // Billing minutes (rounded up)
             started_at: call.start_time,
             ended_at: call.end_time,
             recording_url: null,
@@ -236,19 +246,29 @@ export default function CallLogs({ phoneNumber }: CallLogsProps = {}) {
           };
         });
 
+        console.log(
+          "Transformed call logs from database with exact billing:",
+          transformedLogs.map((log) => ({
+            sid: log.call_sid,
+            exactSeconds: log.call_duration,
+            billingMinutes: log.call_minutes,
+            duration: `${Math.floor(log.call_duration / 60)}:${(log.call_duration % 60).toString().padStart(2, "0")}`,
+          })),
+        );
+
         setCallLogs(transformedLogs);
         console.log(`Loaded ${transformedLogs.length} call logs from function`);
 
-        // Show demo mode notification if applicable
-        if (callLogsData.demo_mode) {
-          toast({
-            title: "Demo Mode",
-            description:
-              callLogsData.message ||
-              "Showing sample data for your subscribed number. Configure Twilio credentials for real call logs.",
-            variant: "default",
-          });
-        }
+        // Remove demo mode notification to hide Twilio references
+        // if (callLogsData.demo_mode) {
+        //   toast({
+        //     title: "Demo Mode",
+        //     description:
+        //       callLogsData.message ||
+        //       "Showing sample data for your subscribed number. Configure credentials for real call logs.",
+        //     variant: "default",
+        //   });
+        // }
 
         // Show info about filtered numbers
         if (
@@ -409,11 +429,11 @@ export default function CallLogs({ phoneNumber }: CallLogsProps = {}) {
                 making calls through your phone numbers. Make sure you have
                 active phone numbers and call flows configured.
               </p>
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mt-4">
-                <p className="text-sm text-yellow-800">
-                  💡 <strong>Tip:</strong> Configure your Twilio credentials in
-                  the project settings to see real call logs from your phone
-                  numbers.
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-4">
+                <p className="text-sm text-blue-800">
+                  💡 <strong>Tip:</strong> Configure your phone service
+                  credentials in the project settings to see real call logs from
+                  your phone numbers.
                 </p>
               </div>
             </div>
@@ -460,16 +480,25 @@ export default function CallLogs({ phoneNumber }: CallLogsProps = {}) {
                 <div className="flex items-center gap-2">
                   <Clock className="h-5 w-5 text-orange-600" />
                   <span className="font-semibold text-orange-900">
-                    Total Minutes
+                    Total Usage
                   </span>
                 </div>
                 <div className="text-2xl font-bold text-orange-800 mt-1">
-                  {Math.round(
+                  {(
                     callLogs.reduce(
-                      (sum, log) => sum + (log.call_minutes || 0),
+                      (sum, log) => sum + (log.call_duration || 0),
                       0,
-                    ),
-                  )}
+                    ) / 60
+                  ).toFixed(2)}{" "}
+                  min
+                </div>
+                <div className="text-xs text-orange-600 mt-1">
+                  (
+                  {callLogs.reduce(
+                    (sum, log) => sum + (log.call_duration || 0),
+                    0,
+                  )}{" "}
+                  seconds exact)
                 </div>
               </div>
             </div>
@@ -520,15 +549,19 @@ export default function CallLogs({ phoneNumber }: CallLogsProps = {}) {
                         <div className="flex items-center gap-2">
                           <Clock className="h-4 w-4 text-gray-500" />
                           <div className="flex flex-col">
-                            <span className="font-mono text-sm">
+                            <span className="font-mono text-sm font-semibold text-gray-900">
                               {log.call_duration
                                 ? `${log.call_duration}s`
                                 : "0s"}
                             </span>
-                            {log.call_minutes && log.call_minutes > 0 && (
+                            <span className="text-xs text-gray-500">
+                              {log.call_duration
+                                ? `${Math.floor(log.call_duration / 60)}:${(log.call_duration % 60).toString().padStart(2, "0")}`
+                                : "0:00"}
+                            </span>
+                            {log.call_duration && log.call_duration > 0 && (
                               <span className="text-xs text-blue-600 font-medium">
-                                Billed: {log.call_minutes} min
-                                {log.call_minutes !== 1 ? "s" : ""}
+                                Exact: {(log.call_duration / 60).toFixed(2)} min
                               </span>
                             )}
                           </div>

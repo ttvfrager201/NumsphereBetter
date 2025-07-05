@@ -89,27 +89,112 @@ const Sidebar = ({
         // Fetch subscription info
         const { data: subData, error: subError } = await supabase
           .from("user_subscriptions")
-          .select("status, plan_id, created_at")
+          .select("status, plan_id, created_at, updated_at")
           .eq("user_id", user.id)
           .eq("status", "active")
-          .single();
+          .order("updated_at", { ascending: false })
+          .maybeSingle();
 
         if (subError && subError.code !== "PGRST116") {
           console.error("Error fetching subscription:", subError);
         }
 
         if (subData) {
-          // Mock usage data - in real app, this would come from actual usage tracking
-          const mockUsage = {
-            credits_used: Math.floor(Math.random() * 800) + 100,
-            credits_total: 1000,
+          // Calculate actual usage from Twilio call logs for current month
+          let totalMinutesUsed = 0;
+          try {
+            const { data: twilioCallLogs, error: twilioError } =
+              await supabase.functions.invoke(
+                "supabase-functions-get-twilio-call-logs",
+                {
+                  body: {
+                    userId: user.id,
+                    limit: 1000,
+                    filterByUserNumbers: true,
+                  },
+                },
+              );
+
+            if (!twilioError && twilioCallLogs?.calls) {
+              // Filter calls from current month
+              const currentDate = new Date();
+              const firstDayOfMonth = new Date(
+                currentDate.getFullYear(),
+                currentDate.getMonth(),
+                1,
+              );
+
+              const currentMonthCalls = twilioCallLogs.calls.filter(
+                (call: any) => {
+                  const callDate = new Date(call.start_time);
+                  return callDate >= firstDayOfMonth;
+                },
+              );
+
+              // Calculate total exact seconds for fair billing
+              const totalExactSeconds = currentMonthCalls.reduce(
+                (sum: number, call: any) => {
+                  const exactSeconds =
+                    call.exact_seconds || parseInt(call.duration || "0");
+                  return sum + exactSeconds;
+                },
+                0,
+              );
+
+              // Convert to minutes with precision
+              totalMinutesUsed =
+                Math.round((totalExactSeconds / 60) * 100) / 100;
+            } else {
+              // Fallback to database call logs
+              const currentDate = new Date();
+              const firstDayOfMonth = new Date(
+                currentDate.getFullYear(),
+                currentDate.getMonth(),
+                1,
+              );
+
+              const { data: callLogsData } = await supabase
+                .from("call_logs")
+                .select("call_duration")
+                .eq("user_id", user.id)
+                .gte("created_at", firstDayOfMonth.toISOString());
+
+              const totalSeconds =
+                callLogsData?.reduce(
+                  (sum, log) => sum + (log.call_duration || 0),
+                  0,
+                ) || 0;
+
+              // Convert exact seconds to minutes for fair billing
+              totalMinutesUsed = Math.round((totalSeconds / 60) * 100) / 100;
+            }
+          } catch (error) {
+            console.error("Error calculating sidebar usage:", error);
+            totalMinutesUsed = 0;
+          }
+
+          // Plan limits
+          const planLimits = {
+            starter: 500,
+            business: 2000,
+            enterprise: -1, // unlimited
+          };
+
+          const planLimit =
+            planLimits[subData.plan_id as keyof typeof planLimits] || 500;
+          const isUnlimited = planLimit === -1;
+
+          const usageData = {
+            credits_used: totalMinutesUsed,
+            credits_total: isUnlimited ? totalMinutesUsed + 1000 : planLimit, // Show some buffer for unlimited
           };
 
           setSubscriptionInfo({
             ...subData,
-            usage_percentage:
-              (mockUsage.credits_used / mockUsage.credits_total) * 100,
-            ...mockUsage,
+            usage_percentage: isUnlimited
+              ? 0
+              : (usageData.credits_used / usageData.credits_total) * 100,
+            ...usageData,
           });
         }
       } catch (error) {
@@ -194,7 +279,10 @@ const Sidebar = ({
                     </span>
                     <span className="text-xs text-gray-600">
                       {subscriptionInfo.credits_used} /{" "}
-                      {subscriptionInfo.credits_total} credits
+                      {subscriptionInfo.plan_id === "enterprise"
+                        ? "Unlimited"
+                        : subscriptionInfo.credits_total}{" "}
+                      min (exact)
                     </span>
                   </div>
                   <Progress

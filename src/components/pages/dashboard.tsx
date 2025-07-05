@@ -478,18 +478,19 @@ const Home = () => {
         const { data: subData } = await supabase
           .from("user_subscriptions")
           .select(
-            "plan_id, status, created_at, stripe_customer_id, stripe_subscription_id",
+            "plan_id, status, created_at, stripe_customer_id, stripe_subscription_id, updated_at",
           )
           .eq("user_id", user.id)
           .eq("status", "active")
+          .order("updated_at", { ascending: false })
           .maybeSingle();
 
         if (subData) {
           setSubscriptionData(subData);
 
-          // Set plan details with pricing
+          // Set plan details with correct pricing
           const planPricing = {
-            starter: 9,
+            starter: 10, // Fixed: was 9, now 10
             business: 29,
             enterprise: 99,
           };
@@ -501,20 +502,106 @@ const Home = () => {
           });
         }
 
-        // Fetch active numbers count and total minutes used
+        // Fetch active numbers count and calculate total minutes from call logs
         const { data: numbersData } = await supabase
           .from("twilio_numbers")
-          .select("id, minutes_used")
+          .select("id")
           .eq("user_id", user.id)
           .eq("status", "active");
 
         if (numbersData) {
           setActiveNumbersCount(numbersData.length);
-          const totalMinutes = numbersData.reduce(
-            (sum, number) => sum + (number.minutes_used || 0),
-            0,
-          );
-          setTotalMinutesUsed(totalMinutes);
+        }
+
+        // Calculate total minutes used from Twilio call logs for current month
+        try {
+          const { data: twilioCallLogs, error: twilioError } =
+            await supabase.functions.invoke(
+              "supabase-functions-get-twilio-call-logs",
+              {
+                body: {
+                  userId: user.id,
+                  limit: 1000, // Get more logs for accurate usage calculation
+                  filterByUserNumbers: true,
+                },
+              },
+            );
+
+          if (!twilioError && twilioCallLogs?.calls) {
+            // Filter calls from current month
+            const currentDate = new Date();
+            const firstDayOfMonth = new Date(
+              currentDate.getFullYear(),
+              currentDate.getMonth(),
+              1,
+            );
+
+            const currentMonthCalls = twilioCallLogs.calls.filter(
+              (call: any) => {
+                const callDate = new Date(call.start_time);
+                return callDate >= firstDayOfMonth;
+              },
+            );
+
+            // Calculate total exact seconds for fair billing
+            const totalExactSeconds = currentMonthCalls.reduce(
+              (sum: number, call: any) => {
+                const exactSeconds =
+                  call.exact_seconds || parseInt(call.duration || "0");
+                return sum + exactSeconds;
+              },
+              0,
+            );
+
+            console.log("Dashboard usage calculation (exact seconds):", {
+              totalCalls: currentMonthCalls.length,
+              totalExactSeconds,
+              totalMinutes: (totalExactSeconds / 60).toFixed(2),
+              callDetails: currentMonthCalls.map((call: any) => ({
+                sid: call.sid,
+                duration: call.duration,
+                exactSeconds: call.exact_seconds,
+                exactMinutes: (
+                  (call.exact_seconds || parseInt(call.duration || "0")) / 60
+                ).toFixed(2),
+              })),
+            });
+
+            // Use exact seconds converted to minutes for fair billing
+            setTotalMinutesUsed(
+              Math.round((totalExactSeconds / 60) * 100) / 100,
+            );
+          } else {
+            console.error(
+              "Error fetching Twilio call logs for usage:",
+              twilioError,
+            );
+            // Fallback to database call logs
+            const currentDate = new Date();
+            const firstDayOfMonth = new Date(
+              currentDate.getFullYear(),
+              currentDate.getMonth(),
+              1,
+            );
+
+            const { data: callLogsData } = await supabase
+              .from("call_logs")
+              .select("call_duration")
+              .eq("user_id", user.id)
+              .gte("created_at", firstDayOfMonth.toISOString());
+
+            if (callLogsData) {
+              const totalSeconds = callLogsData.reduce(
+                (sum, log) => sum + (log.call_duration || 0),
+                0,
+              );
+              // Convert exact seconds to minutes for fair billing
+              setTotalMinutesUsed(Math.round((totalSeconds / 60) * 100) / 100);
+            }
+          }
+        } catch (error) {
+          console.error("Error calculating usage from call logs:", error);
+          setTotalMinutesUsed(0);
         }
 
         // Fetch active flows count
